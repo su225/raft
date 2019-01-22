@@ -67,15 +67,15 @@ func main() {
 		nodeConfig.APIPort,
 		nodeConfig.RPCPort)
 
-	gracefulStop := make(chan os.Signal)
-	signal.Notify(gracefulStop, syscall.SIGTERM)
-	signal.Notify(gracefulStop, syscall.SIGINT)
-
-	receivedSignal := <-gracefulStop
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: mainComponent,
-		logfield.Event:     "SHUTDOWN",
-	}).Infof("Received signal %d. Shutting down", receivedSignal)
+	nodeContext := node.NewContext(nodeConfig)
+	if startupErr := nodeContext.Start(); startupErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: startupErr.Error(),
+			logfield.Component:   mainComponent,
+			logfield.Event:       "START-CTX",
+		}).Error("error while starting node ops")
+	}
+	setupGracefulShutdown(nodeContext)
 }
 
 // setLogFormatter sets up some options for formatting log entries.
@@ -177,4 +177,17 @@ func parseConfigurationFile(configFile string) (*node.Config, error) {
 		}).Error("error while parsing config file")
 	}
 	return &config, nil
+}
+
+func setupGracefulShutdown(context *node.Context) {
+	gracefulStop := make(chan os.Signal)
+	signal.Notify(gracefulStop, syscall.SIGTERM)
+	signal.Notify(gracefulStop, syscall.SIGINT)
+
+	receivedSignal := <-gracefulStop
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: mainComponent,
+		logfield.Event:     "SHUTDOWN",
+	}).Infof("Received signal %d. Shutting down", receivedSignal)
+	context.Destroy()
 }
