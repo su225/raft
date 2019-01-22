@@ -258,10 +258,11 @@ func (rpcs *RealRaftProtobufServer) handleDestroyServer(state *raftProtocolServe
 		return nil
 	}
 	state.server.GracefulStop()
+	state.isDestroyed = true
 	logrus.WithFields(logrus.Fields{
 		Component: rpcServer,
 		Event:     "DESTROY",
-	}).Infof("destroying RPC server")
+	}).Infof("destroyed RPC server")
 	return nil
 }
 
