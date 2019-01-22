@@ -18,20 +18,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package logfield
 
-import (
-	"github.com/sirupsen/logrus"
+const (
+	// Component is the component field in the logger like
+	// Heartbeat, ElectionMgr and so on. The value of the
+	// field must be in CAPS as a convention
+	Component = "component"
+
+	// Event is the event during which the log entry is written
+	// The value of the field must be in CAPS as a convention
+	Event = "event"
 )
-
-func main() {
-	setLogFormatter()
-}
-
-func setLogFormatter() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		DisableColors: false,
-		FullTimestamp: true,
-	})
-	logrus.SetLevel(logrus.DebugLevel)
-}
