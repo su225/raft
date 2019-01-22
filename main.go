@@ -21,17 +21,140 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
+	"io/ioutil"
+
 	"github.com/sirupsen/logrus"
+	"github.com/su225/raft/logfield"
+	"github.com/su225/raft/node"
 )
+
+const mainComponent = "MAIN"
 
 func main() {
 	setLogFormatter()
+
+	nodeConfig, configErr := parseConfig()
+	if configErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: configErr.Error(),
+			logfield.Component:   mainComponent,
+			logfield.Event:       "PARSE-CMD-ARGS",
+		}).Errorf("error while parsing command-line arguments")
+		return
+	}
+	configValidationErrs := node.Validate(nodeConfig)
+	if len(configValidationErrs) > 0 {
+		for _, err := range configValidationErrs {
+			logrus.WithFields(logrus.Fields{
+				logfield.ErrorReason: err.Error(),
+				logfield.Component:   mainComponent,
+				logfield.Event:       "VALIDATE-CONFIG",
+			}).Errorf("config validation error")
+		}
+		return
+	}
+
 }
 
+// setLogFormatter sets up some options for formatting log entries.
+// For now debug, colors are enabled and it is plain text formatter.
 func setLogFormatter() {
 	logrus.SetFormatter(&logrus.TextFormatter{
 		DisableColors: false,
 		FullTimestamp: true,
 	})
 	logrus.SetLevel(logrus.DebugLevel)
+}
+
+// parseConfig parses command-line arguments and builds the configuration
+// If there are any errors then it is returned
+func parseConfig() (*node.Config, error) {
+	configFile := flag.String("config-file", "",
+		"JSON configuration file. When this is specified all other arguments are ignored")
+
+	nodeID := flag.String("id", "",
+		"ID of the node")
+
+	apiPort := flag.Uint("api-port", 6666,
+		"Port used by api-server")
+
+	rpcPort := flag.Uint("rpc-port", 6667,
+		"Port used by rpc-server")
+
+	writeAheadLogEntryPath := flag.String("log-entry-path", ".",
+		"Path where where write-ahead log entries are stored")
+
+	writeAheadLogMetadataPath := flag.String("log-metadata-path", ".",
+		"Path where write-ahead log metadata is stored")
+
+	raftStatePath := flag.String("raft-state-path", ".",
+		"Path where the state of the raft node is stored")
+
+	joinMode := flag.String("join-mode", "cluster-file",
+		"Specifies the mode of peer discovery (allowed values: cluster-file, k8s)")
+
+	clusterConfigPath := flag.String("cluster-config-path", ".",
+		`Path where cluster configuration is stored. This is helpful for peer discovery.
+		 The cluster configuration format is dependent on join-mode argument.`)
+
+	electionTimeout := flag.Int64("election-timeout", 2000,
+		`Election timeout is interval for which the current node waits for heartbeat from
+		 the leader. If heartbeat is not received within this interval, then leader
+		 election is triggered`)
+
+	heartbeatInterval := flag.Int64("heartbeat", 500,
+		`Heartbeat interval is the interval between which the leader node sends heartbeats
+		 to all other nodes in the cluster. This must be much lesser than election timeout
+		 so that elections are not triggered too frequently`)
+
+	rpcTimeout := flag.Int64("rpc-timeout", 1000,
+		`RPC Timeout is the time within which the RPC call to another node must get a
+		 reply. Otherwise it will be timed-out. But the connection might be maintained
+		 to the remote node if possible`)
+
+	flag.Parse()
+	isConfigFileSpecified := len(*configFile) > 0
+	if isConfigFileSpecified {
+		return parseConfigurationFile(*configFile)
+	}
+
+	config := &node.Config{
+		NodeID:                    *nodeID,
+		APIPort:                   uint32(*apiPort),
+		RPCPort:                   uint32(*rpcPort),
+		WriteAheadLogEntryPath:    *writeAheadLogEntryPath,
+		WriteAheadLogMetadataPath: *writeAheadLogMetadataPath,
+		RaftStatePath:             *raftStatePath,
+		JoinMode:                  *joinMode,
+		ClusterConfigPath:         *clusterConfigPath,
+		ElectionTimeoutInMillis:   *electionTimeout,
+		HeartbeatIntervalInMillis: *heartbeatInterval,
+		RPCTimeoutInMillis:        *rpcTimeout,
+	}
+	return config, nil
+}
+
+// parseConfigurationFile parses the configuration file and gets configuration.
+// If there is any error then it is returned
+func parseConfigurationFile(configFile string) (*node.Config, error) {
+	configBytes, readErr := ioutil.ReadFile(configFile)
+	if readErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: readErr.Error(),
+			logfield.Component:   mainComponent,
+			logfield.Event:       "READ-CONFIG-FILE",
+		}).Error("error while reading config file")
+		return nil, readErr
+	}
+	var config node.Config
+	if unmarshalErr := json.Unmarshal(configBytes, &config); unmarshalErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: unmarshalErr.Error(),
+			logfield.Component:   mainComponent,
+			logfield.Event:       "JSON-PARSE-CONFIG-FILE",
+		}).Error("error while parsing config file")
+	}
+	return &config, nil
 }
