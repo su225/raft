@@ -24,6 +24,9 @@ import (
 	"encoding/json"
 	"flag"
 	"io/ioutil"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
@@ -56,6 +59,23 @@ func main() {
 		return
 	}
 
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: mainComponent,
+		logfield.Event:     "CONFIG",
+	}).Infof("NodeID=%s, APIPort=%d, RPCPort=%d",
+		nodeConfig.NodeID,
+		nodeConfig.APIPort,
+		nodeConfig.RPCPort)
+
+	gracefulStop := make(chan os.Signal)
+	signal.Notify(gracefulStop, syscall.SIGTERM)
+	signal.Notify(gracefulStop, syscall.SIGINT)
+
+	receivedSignal := <-gracefulStop
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: mainComponent,
+		logfield.Event:     "SHUTDOWN",
+	}).Infof("Received signal %d. Shutting down", receivedSignal)
 }
 
 // setLogFormatter sets up some options for formatting log entries.
