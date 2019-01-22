@@ -1,4 +1,7 @@
 build: gen-pb
+	go build -race . 
+
+build-release:
 	go build .
 
 test:
