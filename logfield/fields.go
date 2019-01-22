@@ -29,4 +29,7 @@ const (
 	// Event is the event during which the log entry is written
 	// The value of the field must be in CAPS as a convention
 	Event = "event"
+
+	// ErrorReason is used with error logger to denote the reason for error
+	ErrorReason = "reason"
 )
