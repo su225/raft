@@ -1,0 +1,116 @@
+syntax = "proto3";
+package raftpb;
+
+// RaftProtocol service represents the protocol messages used
+// in Raft consensus algorithm.
+service RaftProtocol {
+    // RequestVote requests vote from other nodes in the cluster.
+    // This is used during leader election phase.
+    rpc RequestVote(GrantVoteRequest) returns (GrantVoteReply) {}
+
+    // AppendEntry is used by the leader to attempt to replicate a
+    // log entry to its followers logs
+    rpc AppendEntry(AppendEntryRequest) returns (AppendEntryReply) {}
+
+    // Heartbeat is used by the leader to send heartbeats to followers
+    // in the cluster and to establish authority over them
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatReply) {}
+
+    // InstallSnapshot is used by the leader to transfer the snapshot
+    // to a follower node to fast forward its logs.
+    rpc InstallSnapshot(stream SnapshotData) returns (InstallSnapshotReply) {}
+}
+
+// GrantVoteRequest is used by a node when it is a candidate to
+// request vote from other nodes in the cluster during election
+message GrantVoteRequest {
+    NodeInfo sender_info = 1;
+    OpEntryMetadata last_entry_metadata = 2;
+}
+
+// GrantVoteReply is used by a node in response to GrantVoteRequest
+// to indicate if a vote is granted to a requester.
+message GrantVoteReply {
+    NodeInfo sender_info = 1;
+    bool vote_granted = 2;
+}
+
+// AppendEntryRequest is used by a node to replicate an OpEntry
+// to other cluster nodes. It should be used by leader.
+message AppendEntryRequest {
+    NodeInfo sender_info = 1;
+    OpEntry cur_entry = 2;
+    uint64 prev_term_id = 3;
+    OpEntryMetadata cur_entry_metadata = 4;
+}
+
+// AppendEntryReply is used by a node in response to AppendEntryRequest
+// to indicate if replication of the entry is successful.
+message AppendEntryReply {
+    NodeInfo sender_info = 1;
+    bool appended = 2;
+}
+
+// HeartbeatRequest is used by a node to establish its authority
+// as the leader in the cluster. It is also used to send the commit
+// index to other nodes so that they can build a snapshot.
+message HeartbeatRequest {
+    NodeInfo sender_info = 1;
+    uint64 latest_commit_index = 2;
+}
+
+// HeartbeatReply is used by a node in reply to HeartbeatRequest.
+// It just contains sender info containing nodeID and termID. 
+message HeartbeatReply {
+    NodeInfo sender_info = 1;
+}
+
+// SnapshotData is a piece of snapshot data containing either
+// key-value pair or the snapshot related metadata to update
+// state-machine metadata.
+message SnapshotData {
+    oneof data {
+        Data kv_data = 1;
+        OpEntryMetadata metadata = 2;
+    }
+}
+
+// InstallSnapshotReply is a reply to InstallSnapshot call involving
+// snapshot transfer. The transfer is considered successful if the
+// commit index is greater than or equal to the one in metadata sent
+message InstallSnapshotReply {
+    NodeInfo sender_info = 1;
+    uint64 latest_commit_index = 2;
+}
+
+// OpEntry represents the operational log entry that is created as
+// part of the user request to add or remove a key-value pair.
+message OpEntry {
+    oneof entry {
+        UpsertOp upsert = 1;
+        DeleteOp delete = 2;
+    }
+}
+
+message UpsertOp { Data data = 1; }
+message DeleteOp { string key = 1; }
+
+// Data represents a single key-value pair
+message Data {
+    string key = 1;
+    string value = 2;
+}
+
+// OpEntryMetadata represents the metadata associated with each
+// entry of operational log. That is, term_id and index in log
+message OpEntryMetadata {
+    uint64 term_id = 1;
+    uint64 index = 2;
+}
+
+// NodeInfo represents the information of the node like its identifier
+// in the cluster along with the term it is currently in.
+message NodeInfo {
+    string node_id = 1;
+    uint64 term_id = 2;
+}
