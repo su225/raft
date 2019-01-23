@@ -78,7 +78,7 @@ func (m *RealMembershipManager) Start() error {
 	go m.loop()
 	feedbackChannel := make(chan error)
 	m.commandChannel <- &startMembershipManager{
-		CurrentNodeInfo: m.CurrentNodeInfo,
+		currentNodeInfo: m.CurrentNodeInfo,
 		errChan:         feedbackChannel,
 	}
 	return <-feedbackChannel
@@ -98,7 +98,7 @@ func (m *RealMembershipManager) Destroy() error {
 func (m *RealMembershipManager) AddNode(nodeID string, info NodeInfo) error {
 	feedbackChannel := make(chan error)
 	m.commandChannel <- &addNode{
-		NodeInfo: info,
+		nodeInfo: info,
 		errChan:  feedbackChannel,
 	}
 	return <-feedbackChannel
@@ -123,7 +123,7 @@ func (m *RealMembershipManager) GetNode(nodeID string) (NodeInfo, error) {
 		replyChan: nodeInfoChannel,
 	}
 	reply := <-nodeInfoChannel
-	return reply.NodeInfo, reply.err
+	return reply.nodeInfo, reply.err
 }
 
 // GetAllNodes returns all the nodes in the membership table
@@ -138,7 +138,7 @@ func (m *RealMembershipManager) GetAllNodes() []NodeInfo {
 type membershipManagerState struct {
 	isStarted   bool
 	isDestroyed bool
-	NodeTable   map[string]NodeInfo
+	nodeTable   map[string]NodeInfo
 }
 
 // loop listens to commands and responds accordingly
@@ -146,7 +146,7 @@ func (m *RealMembershipManager) loop() {
 	state := &membershipManagerState{
 		isStarted:   false,
 		isDestroyed: false,
-		NodeTable:   make(map[string]NodeInfo),
+		nodeTable:   make(map[string]NodeInfo),
 	}
 	for {
 		cmd := <-m.commandChannel
@@ -161,7 +161,7 @@ func (m *RealMembershipManager) loop() {
 			c.errChan <- m.handleRemoveNode(state, c)
 		case *getNode:
 			nodeInfo, err := m.handleGetNode(state, c)
-			c.replyChan <- &getNodeReply{NodeInfo: nodeInfo, err: err}
+			c.replyChan <- &getNodeReply{nodeInfo: nodeInfo, err: err}
 		case *getAllNodes:
 			c.replyChan <- m.handleGetAllNodes(state, c)
 		}
@@ -182,9 +182,9 @@ func (m *RealMembershipManager) handleStartMembershipManager(state *membershipMa
 	if discoveryErr != nil {
 		return discoveryErr
 	}
-	state.NodeTable = make(map[string]NodeInfo)
+	state.nodeTable = make(map[string]NodeInfo)
 	for _, node := range discoveredNodes {
-		state.NodeTable[node.ID] = node
+		state.nodeTable[node.ID] = node
 	}
 	state.isStarted = true
 	return nil
@@ -196,7 +196,7 @@ func (m *RealMembershipManager) handleDestroyMembershipManager(state *membership
 	if state.isDestroyed {
 		return nil
 	}
-	state.NodeTable = nil
+	state.nodeTable = nil
 	state.isDestroyed = true
 	return nil
 }
@@ -208,11 +208,11 @@ func (m *RealMembershipManager) handleAddNode(state *membershipManagerState, cmd
 	if err := m.checkOperationalStatus(state); err != nil {
 		return err
 	}
-	nodeID := cmd.NodeInfo.ID
-	if _, isPresent := state.NodeTable[nodeID]; isPresent {
+	nodeID := cmd.nodeInfo.ID
+	if _, isPresent := state.nodeTable[nodeID]; isPresent {
 		return &MemberWithGivenIDAlreadyExistsError{nodeID}
 	}
-	state.NodeTable[nodeID] = cmd.NodeInfo
+	state.nodeTable[nodeID] = cmd.nodeInfo
 	return nil
 }
 
@@ -222,10 +222,10 @@ func (m *RealMembershipManager) handleRemoveNode(state *membershipManagerState, 
 	if err := m.checkOperationalStatus(state); err != nil {
 		return err
 	}
-	if _, isPresent := state.NodeTable[cmd.nodeID]; !isPresent {
+	if _, isPresent := state.nodeTable[cmd.nodeID]; !isPresent {
 		return &MemberWithGivenIDDoesNotExistError{cmd.nodeID}
 	}
-	delete(state.NodeTable, cmd.nodeID)
+	delete(state.nodeTable, cmd.nodeID)
 	return nil
 }
 
@@ -235,7 +235,7 @@ func (m *RealMembershipManager) handleGetNode(state *membershipManagerState, cmd
 	if err := m.checkOperationalStatus(state); err != nil {
 		return NodeInfo{}, err
 	}
-	if nodeInfo, isPresent := state.NodeTable[cmd.nodeID]; !isPresent {
+	if nodeInfo, isPresent := state.nodeTable[cmd.nodeID]; !isPresent {
 		return NodeInfo{}, &MemberWithGivenIDDoesNotExistError{cmd.nodeID}
 	} else {
 		return nodeInfo, nil
@@ -249,7 +249,7 @@ func (m *RealMembershipManager) handleGetAllNodes(state *membershipManagerState,
 		return []NodeInfo{}
 	}
 	nodeList := make([]NodeInfo, 0)
-	for _, node := range state.NodeTable {
+	for _, node := range state.nodeTable {
 		nodeList = append(nodeList, node)
 	}
 	return nodeList

@@ -5,12 +5,12 @@ import (
 )
 
 type protocolServerCommand interface {
-	IsProtocolServerCommand() bool
+	isProtocolServerCommand() bool
 }
 
 type startServer struct {
 	protocolServerCommand
-	RPCPort uint32
+	rpcPort uint32
 	errChan chan error
 }
 
@@ -27,7 +27,7 @@ type requestVoteRequest struct {
 
 type requestVoteReply struct {
 	*raftpb.GrantVoteReply
-	RequestVoteError error
+	requestVoteError error
 }
 
 type appendEntryRequest struct {
@@ -38,7 +38,7 @@ type appendEntryRequest struct {
 
 type appendEntryReply struct {
 	*raftpb.AppendEntryReply
-	AppendEntryError error
+	appendEntryError error
 }
 
 type heartbeatRequest struct {
@@ -49,5 +49,5 @@ type heartbeatRequest struct {
 
 type heartbeatReply struct {
 	*raftpb.HeartbeatReply
-	HeartbeatError error
+	heartbeatError error
 }

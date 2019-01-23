@@ -3,12 +3,12 @@ package cluster
 // membershipCommand represents the command to
 // membership manager
 type membershipCommand interface {
-	IsMembershipCommand() bool
+	isMembershipCommand() bool
 }
 
 type startMembershipManager struct {
 	membershipCommand
-	CurrentNodeInfo NodeInfo
+	currentNodeInfo NodeInfo
 	errChan         chan error
 }
 
@@ -19,8 +19,8 @@ type destroyMembershipManager struct {
 
 type addNode struct {
 	membershipCommand
-	NodeInfo
-	errChan chan error
+	nodeInfo NodeInfo
+	errChan  chan error
 }
 
 type removeNode struct {
@@ -36,8 +36,8 @@ type getNode struct {
 }
 
 type getNodeReply struct {
-	NodeInfo
-	err error
+	nodeInfo NodeInfo
+	err      error
 }
 
 type getAllNodes struct {

@@ -67,7 +67,7 @@ func (rpcs *RealRaftProtobufServer) Start() error {
 	go rpcs.loop()
 	startupErrChan := make(chan error)
 	rpcs.commandChannel <- &startServer{
-		RPCPort: rpcs.RPCPort,
+		rpcPort: rpcs.RPCPort,
 		errChan: startupErrChan,
 	}
 	return <-startupErrChan
@@ -95,7 +95,7 @@ func (rpcs *RealRaftProtobufServer) RequestVote(context context.Context, request
 		resChan:          requestVoteResChan,
 	}
 	result := <-requestVoteResChan
-	return result.GrantVoteReply, result.RequestVoteError
+	return result.GrantVoteReply, result.requestVoteError
 }
 
 // AppendEntry checks if it is possible to append entry to the log. If it is then
@@ -108,7 +108,7 @@ func (rpcs *RealRaftProtobufServer) AppendEntry(context context.Context, request
 		resChan:            appendEntryResChan,
 	}
 	result := <-appendEntryResChan
-	return result.AppendEntryReply, result.AppendEntryError
+	return result.AppendEntryReply, result.appendEntryError
 }
 
 // Heartbeat tries to update maximum committed index obtained from the leader. If
@@ -122,7 +122,7 @@ func (rpcs *RealRaftProtobufServer) Heartbeat(context context.Context, request *
 		resChan:          heartbeatResChan,
 	}
 	result := <-heartbeatResChan
-	return result.HeartbeatReply, result.HeartbeatError
+	return result.HeartbeatReply, result.heartbeatError
 }
 
 // InstallSnapshot tries to obtain snapshot from the leader and applies it so that
@@ -175,7 +175,7 @@ func (rpcs *RealRaftProtobufServer) handleStartServer(state *raftProtocolServerS
 	}
 
 	// Setup listener on which the server listens
-	rpcServerAddress := fmt.Sprintf(":%d", cmd.RPCPort)
+	rpcServerAddress := fmt.Sprintf(":%d", cmd.rpcPort)
 	rpcListener, rpcListenerErr := net.Listen("tcp", rpcServerAddress)
 	if rpcListenerErr != nil {
 		return rpcListenerErr
