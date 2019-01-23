@@ -1,5 +1,9 @@
 package cluster
 
+import (
+	"github.com/su225/raft/node/common"
+)
+
 // NodeInfo represents the information of the node
 // in a raft cluster. ID represents its name, RPCURL
 // and APIURL represent their RPC and API endpoints
@@ -29,10 +33,16 @@ type MembershipManager interface {
 	// GetAllNodes returns the list of nodes known to this
 	// node in the cluster. It must include the current node
 	GetAllNodes() []NodeInfo
-	// DiscoverNodes discovers nodes in the cluster by the
-	// mechanism that must be specified by the implementor
-	// If there is an error then it is returned
-	DiscoverNodes() error
+}
+
+var membershipManager = "MEMBERSHIP-MANAGER"
+
+var membershipManagerIsDestroyedError = &common.ComponentIsDestroyedError{
+	ComponentName: membershipManager,
+}
+
+var membershipManagerHasNotStartedError = &common.ComponentHasNotStartedError{
+	ComponentName: membershipManager,
 }
 
 // RealMembershipManager implements operations that are
@@ -40,13 +50,18 @@ type MembershipManager interface {
 type RealMembershipManager struct {
 	CurrentNodeInfo NodeInfo
 	commandChannel  chan membershipCommand
+	Joiner
 }
 
 // NewRealMembershipManager creates a new membership manager
-func NewRealMembershipManager(currentNodeInfo NodeInfo) *RealMembershipManager {
+func NewRealMembershipManager(
+	currentNodeInfo NodeInfo,
+	joiner Joiner,
+) *RealMembershipManager {
 	return &RealMembershipManager{
 		CurrentNodeInfo: currentNodeInfo,
 		commandChannel:  make(chan membershipCommand),
+		Joiner:          joiner,
 	}
 }
 
@@ -54,42 +69,62 @@ func NewRealMembershipManager(currentNodeInfo NodeInfo) *RealMembershipManager {
 // makes this component operational. If it is already destroyed
 // then error is returned. If already started, then it is no-op
 func (m *RealMembershipManager) Start() error {
-	return nil
+	go m.loop()
+	feedbackChannel := make(chan error)
+	m.commandChannel <- &startMembershipManager{
+		CurrentNodeInfo: m.CurrentNodeInfo,
+		errChan:         feedbackChannel,
+	}
+	return <-feedbackChannel
 }
 
 // Destroy destroys the real membership manager component and
 // makes this component non-operational. Any operation invoked
 // after this call would return error complaining about destruction
 func (m *RealMembershipManager) Destroy() error {
-	return nil
+	feedbackChannel := make(chan error)
+	m.commandChannel <- &destroyMembershipManager{errChan: feedbackChannel}
+	return <-feedbackChannel
 }
 
 // AddNode adds a new node to the membership table if it does not exist. If it
 // exists then an error is returned.
 func (m *RealMembershipManager) AddNode(nodeID string, info NodeInfo) error {
-	return nil
+	feedbackChannel := make(chan error)
+	m.commandChannel <- &addNode{
+		NodeInfo: info,
+		errChan:  feedbackChannel,
+	}
+	return <-feedbackChannel
 }
 
 // RemoveNode removes the node from the membership table if it exists, else error
 func (m *RealMembershipManager) RemoveNode(nodeID string) error {
-	return nil
+	feedbackChannel := make(chan error)
+	m.commandChannel <- &removeNode{
+		nodeID:  nodeID,
+		errChan: feedbackChannel,
+	}
+	return <-feedbackChannel
 }
 
 // GetNode gets the node with the given ID from the membership table or returns
 // an error complaining that node with given ID does not exist
 func (m *RealMembershipManager) GetNode(nodeID string) (NodeInfo, error) {
-	return NodeInfo{}, nil
+	nodeInfoChannel := make(chan *getNodeReply)
+	m.commandChannel <- &getNode{
+		nodeID:    nodeID,
+		replyChan: nodeInfoChannel,
+	}
+	reply := <-nodeInfoChannel
+	return reply.NodeInfo, reply.err
 }
 
 // GetAllNodes returns all the nodes in the membership table
 func (m *RealMembershipManager) GetAllNodes() []NodeInfo {
-	return []NodeInfo{}
-}
-
-// DiscoverNodes discovers nodes in the cluster and returns error
-// if there was an error in the discovery process.
-func (m *RealMembershipManager) DiscoverNodes() error {
-	return nil
+	nodesChannel := make(chan []NodeInfo)
+	m.commandChannel <- &getAllNodes{replyChan: nodesChannel}
+	return <-nodesChannel
 }
 
 // membershipManagerState is responsible for maintaining the
@@ -127,26 +162,102 @@ func (m *RealMembershipManager) loop() {
 	}
 }
 
+// handleStartMembershipManager starts the membership manager component. This is a lifecycle
+// command. It triggers discovery of other nodes and cluster formation. If it is successful
+// the NodeTable is populated with discovered nodes
 func (m *RealMembershipManager) handleStartMembershipManager(state *membershipManagerState, cmd *startMembershipManager) error {
+	if state.isStarted {
+		return nil
+	}
+	if state.isDestroyed {
+		return membershipManagerIsDestroyedError
+	}
+	discoveredNodes, discoveryErr := m.Joiner.DiscoverNodes()
+	if discoveryErr != nil {
+		return discoveryErr
+	}
+	state.NodeTable = make(map[string]NodeInfo)
+	for _, node := range discoveredNodes {
+		state.NodeTable[node.ID] = node
+	}
+	state.isStarted = true
 	return nil
 }
 
+// handleDestroyMembershipManager is a lifecycle command which makes the component non-operational.
+// If the component is already destroyed then this is a no-op
 func (m *RealMembershipManager) handleDestroyMembershipManager(state *membershipManagerState, cmd *destroyMembershipManager) error {
+	if state.isDestroyed {
+		return nil
+	}
+	state.NodeTable = nil
+	state.isDestroyed = true
 	return nil
 }
 
+// handleAddNode adds new node to the node table if it is not there yet. If it already exists
+// then MemberWithGivenIDAlreadyExistsError is returned with the given nodeID. This operation
+// requires component to be operational.
 func (m *RealMembershipManager) handleAddNode(state *membershipManagerState, cmd *addNode) error {
+	if err := m.checkOperationalStatus(state); err != nil {
+		return err
+	}
+	nodeID := cmd.NodeInfo.ID
+	if _, isPresent := state.NodeTable[nodeID]; isPresent {
+		return &MemberWithGivenIDAlreadyExistsError{nodeID}
+	}
+	state.NodeTable[nodeID] = cmd.NodeInfo
 	return nil
 }
 
+// handleRemoveNode removes the node from the table if it exists. If it does not exist then
+// MemberWithGivenIDDoesNotExistError is returned. This operation requires component to be operational
 func (m *RealMembershipManager) handleRemoveNode(state *membershipManagerState, cmd *removeNode) error {
+	if err := m.checkOperationalStatus(state); err != nil {
+		return err
+	}
+	if _, isPresent := state.NodeTable[cmd.nodeID]; !isPresent {
+		return &MemberWithGivenIDDoesNotExistError{cmd.nodeID}
+	}
+	delete(state.NodeTable, cmd.nodeID)
 	return nil
 }
 
+// handleGetNode picks up the node information from NodeTable if it exists. If it does not then
+// MemberWithGivenIDDoesNotExistError is returned. This operation requires component to be operational
 func (m *RealMembershipManager) handleGetNode(state *membershipManagerState, cmd *getNode) (NodeInfo, error) {
-	return NodeInfo{}, nil
+	if err := m.checkOperationalStatus(state); err != nil {
+		return NodeInfo{}, err
+	}
+	if nodeInfo, isPresent := state.NodeTable[cmd.nodeID]; !isPresent {
+		return NodeInfo{}, &MemberWithGivenIDDoesNotExistError{cmd.nodeID}
+	} else {
+		return nodeInfo, nil
+	}
 }
 
+// handleGetAllNodes returns all the nodes known to this node. Component must be operational
+// otherwise empty list will be returned
 func (m *RealMembershipManager) handleGetAllNodes(state *membershipManagerState, cmd *getAllNodes) []NodeInfo {
-	return []NodeInfo{}
+	if err := m.checkOperationalStatus(state); err != nil {
+		return []NodeInfo{}
+	}
+	nodeList := make([]NodeInfo, 0)
+	for _, node := range state.NodeTable {
+		nodeList = append(nodeList, node)
+	}
+	return nodeList
+}
+
+// checkOperationalStatus checks if the component is operational. If the component is destroyed or
+// not started yet then appropriate component lifecycle related errors are returned (see errors.go
+// in node/common for lifecycle related errors)
+func (m *RealMembershipManager) checkOperationalStatus(state *membershipManagerState) error {
+	if state.isDestroyed {
+		return membershipManagerIsDestroyedError
+	}
+	if !state.isStarted {
+		return membershipManagerHasNotStartedError
+	}
+	return nil
 }
