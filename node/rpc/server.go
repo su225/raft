@@ -27,11 +27,15 @@ import (
 
 	"github.com/sirupsen/logrus"
 	. "github.com/su225/raft/logfield"
+	"github.com/su225/raft/node/common"
 	"github.com/su225/raft/pb"
 	"google.golang.org/grpc"
 )
 
 const rpcServer = "RPC-SERVER"
+
+var rpcServerNotStartedError = &common.ComponentHasNotStartedError{ComponentName: rpcServer}
+var rpcServerIsDestroyedError = &common.ComponentIsDestroyedError{ComponentName: rpcServer}
 
 type protocolServerCommand interface {
 	IsProtocolServerCommand()
@@ -61,14 +65,6 @@ func NewRealRaftProtobufServer(rpcPort uint32) *RealRaftProtobufServer {
 	}
 }
 
-/****** Handle start - starts ******/
-
-type startServer struct {
-	protocolServerCommand
-	RPCPort uint32
-	errChan chan error
-}
-
 // Start brings up the server so that it listens at the port specified by
 // RPCPort and starts accepting connections and incoming protobuf messages.
 func (rpcs *RealRaftProtobufServer) Start() error {
@@ -81,13 +77,6 @@ func (rpcs *RealRaftProtobufServer) Start() error {
 	return <-startupErrChan
 }
 
-/****** Handle destroy ******/
-
-type destroyServer struct {
-	protocolServerCommand
-	errChan chan error
-}
-
 // Destroy brings down the server so that other nodes can no longer
 // connect to this node. The component becomes non-operational and
 // this function is irreversible.
@@ -97,19 +86,6 @@ func (rpcs *RealRaftProtobufServer) Destroy() error {
 		errChan: destroyErrChan,
 	}
 	return <-destroyErrChan
-}
-
-/****** Handle RequestVote ******/
-
-type requestVoteRequest struct {
-	protocolServerCommand
-	*raftpb.GrantVoteRequest
-	resChan chan requestVoteReply
-}
-
-type requestVoteReply struct {
-	*raftpb.GrantVoteReply
-	RequestVoteError error
 }
 
 // RequestVote decides if this node should grant vote to the remote node for the
@@ -126,19 +102,6 @@ func (rpcs *RealRaftProtobufServer) RequestVote(context context.Context, request
 	return result.GrantVoteReply, result.RequestVoteError
 }
 
-/****** Handle AppendEntry ******/
-
-type appendEntryRequest struct {
-	protocolServerCommand
-	*raftpb.AppendEntryRequest
-	resChan chan appendEntryReply
-}
-
-type appendEntryReply struct {
-	*raftpb.AppendEntryReply
-	AppendEntryError error
-}
-
 // AppendEntry checks if it is possible to append entry to the log. If it is then
 // it appends entry to the log at the given index in the given term. If there are
 // any failures then the same will be returned and the client must retry.
@@ -150,19 +113,6 @@ func (rpcs *RealRaftProtobufServer) AppendEntry(context context.Context, request
 	}
 	result := <-appendEntryResChan
 	return result.AppendEntryReply, result.AppendEntryError
-}
-
-/****** Handle Heartbeat ******/
-
-type heartbeatRequest struct {
-	protocolServerCommand
-	*raftpb.HeartbeatRequest
-	resChan chan heartbeatReply
-}
-
-type heartbeatReply struct {
-	*raftpb.HeartbeatReply
-	HeartbeatError error
 }
 
 // Heartbeat tries to update maximum committed index obtained from the leader. If
@@ -179,8 +129,6 @@ func (rpcs *RealRaftProtobufServer) Heartbeat(context context.Context, request *
 	return result.HeartbeatReply, result.HeartbeatError
 }
 
-/****** Handle InstallSnapshot ******/
-
 // InstallSnapshot tries to obtain snapshot from the leader and applies it so that
 // the write-ahead log can be fast-forwarded and older entries can be cleaned up. The
 // snapshot transfer must be atomic. In other words, on failure, snapshot being
@@ -188,8 +136,6 @@ func (rpcs *RealRaftProtobufServer) Heartbeat(context context.Context, request *
 func (rpcs *RealRaftProtobufServer) InstallSnapshot(raftpb.RaftProtocol_InstallSnapshotServer) error {
 	return nil
 }
-
-/****** Handle commands ******/
 
 type raftProtocolServerState struct {
 	isStarted   bool
@@ -225,7 +171,10 @@ func (rpcs *RealRaftProtobufServer) loop() {
 // handleStartServer starts the server if it not destroyed or already started. If there is an error while
 // starting then it is returned. Otherwise nil is returned. This operation is idempotent.
 func (rpcs *RealRaftProtobufServer) handleStartServer(state *raftProtocolServerState, cmd startServer) error {
-	if state.isDestroyed || state.isStarted {
+	if state.isDestroyed {
+		return rpcServerIsDestroyedError
+	}
+	if state.isStarted {
 		return nil
 	}
 
