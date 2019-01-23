@@ -20,6 +20,18 @@
 
 package node
 
+const (
+	// StaticFileJoinMode is the default mode and is useful
+	// running cluster locally. It looks for a cluster
+	// configuration file containing the list of nodes
+	// in the cluster. It expects JSON format
+	StaticFileJoinMode = "static"
+
+	// KubernetesJoinMode is enabled when this is run
+	// in Kubernetes.
+	KubernetesJoinMode = "k8s"
+)
+
 // Config represents the configuration passed
 // to the raft node like NodeID, API and RPC ports
 type Config struct {
