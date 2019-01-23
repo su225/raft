@@ -37,10 +37,6 @@ const rpcServer = "RPC-SERVER"
 var rpcServerNotStartedError = &common.ComponentHasNotStartedError{ComponentName: rpcServer}
 var rpcServerIsDestroyedError = &common.ComponentIsDestroyedError{ComponentName: rpcServer}
 
-type protocolServerCommand interface {
-	IsProtocolServerCommand()
-}
-
 // RealRaftProtobufServer is responsible for handling all
 // incoming communication to this node. In other words, all
 // incoming messages must come here
@@ -70,7 +66,7 @@ func NewRealRaftProtobufServer(rpcPort uint32) *RealRaftProtobufServer {
 func (rpcs *RealRaftProtobufServer) Start() error {
 	go rpcs.loop()
 	startupErrChan := make(chan error)
-	rpcs.commandChannel <- startServer{
+	rpcs.commandChannel <- &startServer{
 		RPCPort: rpcs.RPCPort,
 		errChan: startupErrChan,
 	}
@@ -82,7 +78,7 @@ func (rpcs *RealRaftProtobufServer) Start() error {
 // this function is irreversible.
 func (rpcs *RealRaftProtobufServer) Destroy() error {
 	destroyErrChan := make(chan error)
-	rpcs.commandChannel <- destroyServer{
+	rpcs.commandChannel <- &destroyServer{
 		errChan: destroyErrChan,
 	}
 	return <-destroyErrChan
@@ -93,8 +89,8 @@ func (rpcs *RealRaftProtobufServer) Destroy() error {
 // failure in the component or network then it must be assumed that the node is
 // not in a position to grant vote and is taken to be 'false'
 func (rpcs *RealRaftProtobufServer) RequestVote(context context.Context, request *raftpb.GrantVoteRequest) (*raftpb.GrantVoteReply, error) {
-	requestVoteResChan := make(chan requestVoteReply)
-	rpcs.commandChannel <- requestVoteRequest{
+	requestVoteResChan := make(chan *requestVoteReply)
+	rpcs.commandChannel <- &requestVoteRequest{
 		GrantVoteRequest: request,
 		resChan:          requestVoteResChan,
 	}
@@ -106,8 +102,8 @@ func (rpcs *RealRaftProtobufServer) RequestVote(context context.Context, request
 // it appends entry to the log at the given index in the given term. If there are
 // any failures then the same will be returned and the client must retry.
 func (rpcs *RealRaftProtobufServer) AppendEntry(context context.Context, request *raftpb.AppendEntryRequest) (*raftpb.AppendEntryReply, error) {
-	appendEntryResChan := make(chan appendEntryReply)
-	rpcs.commandChannel <- appendEntryRequest{
+	appendEntryResChan := make(chan *appendEntryReply)
+	rpcs.commandChannel <- &appendEntryRequest{
 		AppendEntryRequest: request,
 		resChan:            appendEntryResChan,
 	}
@@ -120,8 +116,8 @@ func (rpcs *RealRaftProtobufServer) AppendEntry(context context.Context, request
 // based on certain conditions arount TermID. In reply, it tells the node sending
 // heartbeat if it accepts the node as the leader
 func (rpcs *RealRaftProtobufServer) Heartbeat(context context.Context, request *raftpb.HeartbeatRequest) (*raftpb.HeartbeatReply, error) {
-	heartbeatResChan := make(chan heartbeatReply)
-	rpcs.commandChannel <- heartbeatRequest{
+	heartbeatResChan := make(chan *heartbeatReply)
+	rpcs.commandChannel <- &heartbeatRequest{
 		HeartbeatRequest: request,
 		resChan:          heartbeatResChan,
 	}
@@ -154,15 +150,15 @@ func (rpcs *RealRaftProtobufServer) loop() {
 	for {
 		cmd := <-rpcs.commandChannel
 		switch serverCmd := cmd.(type) {
-		case startServer:
+		case *startServer:
 			serverCmd.errChan <- rpcs.handleStartServer(state, serverCmd)
-		case destroyServer:
+		case *destroyServer:
 			serverCmd.errChan <- rpcs.handleDestroyServer(state, serverCmd)
-		case requestVoteRequest:
+		case *requestVoteRequest:
 			serverCmd.resChan <- rpcs.handleRequestVote(state, serverCmd)
-		case appendEntryRequest:
+		case *appendEntryRequest:
 			serverCmd.resChan <- rpcs.handleAppendEntry(state, serverCmd)
-		case heartbeatRequest:
+		case *heartbeatRequest:
 			serverCmd.resChan <- rpcs.handleHeartbeat(state, serverCmd)
 		}
 	}
@@ -170,7 +166,7 @@ func (rpcs *RealRaftProtobufServer) loop() {
 
 // handleStartServer starts the server if it not destroyed or already started. If there is an error while
 // starting then it is returned. Otherwise nil is returned. This operation is idempotent.
-func (rpcs *RealRaftProtobufServer) handleStartServer(state *raftProtocolServerState, cmd startServer) error {
+func (rpcs *RealRaftProtobufServer) handleStartServer(state *raftProtocolServerState, cmd *startServer) error {
 	if state.isDestroyed {
 		return rpcServerIsDestroyedError
 	}
@@ -202,7 +198,7 @@ func (rpcs *RealRaftProtobufServer) handleStartServer(state *raftProtocolServerS
 
 // handleDestroyServer gracefully shuts down the RPC server if it is not already destroyed.
 // If it is already destroyed then this is a no-op. This operation is idempotent
-func (rpcs *RealRaftProtobufServer) handleDestroyServer(state *raftProtocolServerState, cmd destroyServer) error {
+func (rpcs *RealRaftProtobufServer) handleDestroyServer(state *raftProtocolServerState, cmd *destroyServer) error {
 	if state.isDestroyed {
 		return nil
 	}
@@ -219,8 +215,8 @@ func (rpcs *RealRaftProtobufServer) handleDestroyServer(state *raftProtocolServe
 // the decision to grant or deny vote is made. If there is an error then it is communicated and vote is denied
 // If the node is in higher term and its log is at least as long as the current log then vote is granted if and
 // only if the node has not already voted in this term
-func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerState, cmd requestVoteRequest) requestVoteReply {
-	return requestVoteReply{}
+func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerState, cmd *requestVoteRequest) *requestVoteReply {
+	return &requestVoteReply{}
 }
 
 // handleAppendEntry handles append entry request from mostly cluster leader. If the operation can be performed
@@ -228,8 +224,8 @@ func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerS
 // If the remote node has lower term ID then the entry is not accepted. If the remote node doesn't have the same
 // term ID as the current node then the request is ignored. If the remote node is in higher term ID its heartbeat
 // should force this node to become its follower anyways.
-func (rpcs *RealRaftProtobufServer) handleAppendEntry(state *raftProtocolServerState, cmd appendEntryRequest) appendEntryReply {
-	return appendEntryReply{}
+func (rpcs *RealRaftProtobufServer) handleAppendEntry(state *raftProtocolServerState, cmd *appendEntryRequest) *appendEntryReply {
+	return &appendEntryReply{}
 }
 
 // handleHeartbeat handles heartbeat from the remote node which claims to be the leader. If the remote node is
@@ -237,6 +233,6 @@ func (rpcs *RealRaftProtobufServer) handleAppendEntry(state *raftProtocolServerS
 // it should not accept it as the leader. If the remote node has the same term as the current node and the node
 // is a candidate or a follower without a leader then leader is updated. This operation might update the maximum
 // committed index in the write-ahead log if this node accepts the remote as leader.
-func (rpcs *RealRaftProtobufServer) handleHeartbeat(state *raftProtocolServerState, cmd heartbeatRequest) heartbeatReply {
-	return heartbeatReply{}
+func (rpcs *RealRaftProtobufServer) handleHeartbeat(state *raftProtocolServerState, cmd *heartbeatRequest) *heartbeatReply {
+	return &heartbeatReply{}
 }

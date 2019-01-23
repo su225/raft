@@ -4,6 +4,8 @@ import (
 	"github.com/su225/raft/pb"
 )
 
+type protocolServerCommand interface{}
+
 type startServer struct {
 	protocolServerCommand
 	RPCPort uint32
@@ -18,7 +20,7 @@ type destroyServer struct {
 type requestVoteRequest struct {
 	protocolServerCommand
 	*raftpb.GrantVoteRequest
-	resChan chan requestVoteReply
+	resChan chan *requestVoteReply
 }
 
 type requestVoteReply struct {
@@ -29,7 +31,7 @@ type requestVoteReply struct {
 type appendEntryRequest struct {
 	protocolServerCommand
 	*raftpb.AppendEntryRequest
-	resChan chan appendEntryReply
+	resChan chan *appendEntryReply
 }
 
 type appendEntryReply struct {
@@ -40,7 +42,7 @@ type appendEntryReply struct {
 type heartbeatRequest struct {
 	protocolServerCommand
 	*raftpb.HeartbeatRequest
-	resChan chan heartbeatReply
+	resChan chan *heartbeatReply
 }
 
 type heartbeatReply struct {
