@@ -27,6 +27,9 @@ import (
 // Context represents the holder for all the components
 // running as part of this Raft node.
 type Context struct {
+	// RealRaftProbufServer is an implementation of RaftProtocolServer
+	// It is responsible for receiving all incoming protocol-related
+	// messages from other nodes and taking appropriate action
 	*rpc.RealRaftProtobufServer
 }
 
