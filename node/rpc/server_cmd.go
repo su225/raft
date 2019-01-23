@@ -4,7 +4,9 @@ import (
 	"github.com/su225/raft/pb"
 )
 
-type protocolServerCommand interface{}
+type protocolServerCommand interface {
+	IsProtocolServerCommand() bool
+}
 
 type startServer struct {
 	protocolServerCommand
