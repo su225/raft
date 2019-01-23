@@ -74,6 +74,8 @@ func main() {
 			logfield.Component:   mainComponent,
 			logfield.Event:       "START-CTX",
 		}).Error("error while starting node ops")
+		nodeContext.Destroy()
+		os.Exit(-1)
 	}
 	setupGracefulShutdown(nodeContext)
 }
