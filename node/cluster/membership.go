@@ -33,6 +33,12 @@ type MembershipManager interface {
 	// GetAllNodes returns the list of nodes known to this
 	// node in the cluster. It must include the current node
 	GetAllNodes() []NodeInfo
+
+	// MembershipManager should have start and destroy. At
+	// the start it should perform peer discovery and get to
+	// know other cluster members. On destruction, it should
+	// not accept any handles as per the definition
+	common.ComponentLifecycle
 }
 
 var membershipManager = "MEMBERSHIP-MANAGER"
