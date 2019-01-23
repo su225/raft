@@ -4,6 +4,9 @@ build: gen-pb
 build-release:
 	go build .
 
+test-all:
+	go test ./node/cluster
+
 test:
 	go test $(PACKAGE) 
 
