@@ -21,6 +21,9 @@
 package node
 
 import (
+	"fmt"
+
+	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/rpc"
 )
 
@@ -31,14 +34,28 @@ type Context struct {
 	// It is responsible for receiving all incoming protocol-related
 	// messages from other nodes and taking appropriate action
 	*rpc.RealRaftProtobufServer
+
+	// MembershipManager is responsible for managing cluster membership
+	// and keeping track of information about other nodes in the cluster
+	cluster.MembershipManager
 }
 
 // NewContext creates a new node context and returns it
 // It wires up all the components before returning.
 func NewContext(config *Config) *Context {
 	realRaftProtobufServer := rpc.NewRealRaftProtobufServer(config.RPCPort)
+
+	joiner := getJoiner(config)
+	currentNodeInfo := cluster.NodeInfo{
+		ID:     config.NodeID,
+		APIURL: fmt.Sprintf(":%d", config.APIPort),
+		RPCURL: fmt.Sprintf(":%d", config.RPCPort),
+	}
+	membershipManager := cluster.NewRealMembershipManager(currentNodeInfo, joiner)
+
 	return &Context{
 		RealRaftProtobufServer: realRaftProtobufServer,
+		MembershipManager:      membershipManager,
 	}
 }
 
@@ -48,6 +65,9 @@ func (ctx *Context) Start() error {
 	if probufStartErr := ctx.RealRaftProtobufServer.Start(); probufStartErr != nil {
 		return probufStartErr
 	}
+	if membershipMgrStartErr := ctx.MembershipManager.Start(); membershipMgrStartErr != nil {
+		return membershipMgrStartErr
+	}
 	return nil
 }
 
@@ -56,8 +76,18 @@ func (ctx *Context) Start() error {
 // This allows for graceful shutdown of each of the
 // component in the node.
 func (ctx *Context) Destroy() error {
+	if membershipMgrDestroyErr := ctx.MembershipManager.Destroy(); membershipMgrDestroyErr != nil {
+		return membershipMgrDestroyErr
+	}
 	if protobufDestroyErr := ctx.RealRaftProtobufServer.Destroy(); protobufDestroyErr != nil {
 		return protobufDestroyErr
 	}
 	return nil
+}
+
+func getJoiner(config *Config) cluster.Joiner {
+	if config.JoinMode == KubernetesJoinMode {
+		panic("k8s-mode is not yet implemented")
+	}
+	return cluster.NewStaticFileBasedJoiner(config.ClusterConfigPath)
 }
