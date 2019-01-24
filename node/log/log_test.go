@@ -28,7 +28,7 @@ func getWriteAheadLogManagerWithMockedPersistence(entrySucceeds, metaSucceeds bo
 }
 
 func getEntryPersistenceWithDefaultEntries(succeeds bool, max uint64) *InMemoryEntryPersistence {
-	entryPersistence := NewInMemoryEntryPersistence(true)
+	entryPersistence := NewInMemoryEntryPersistence(succeeds)
 	entryPersistence.Entries[0] = &SentinelEntry{}
 	for i := uint64(1); i <= max; i++ {
 		entryPersistence.Entries[i] = &UpsertEntry{
@@ -73,7 +73,7 @@ func TestAppendEntryUpdatesTailEntryIDOnSuccess(t *testing.T) {
 	if reply == nil || reply.appendErr != nil {
 		t.FailNow()
 	}
-	if reply.tailLogEntryID.TermID != 10 || reply.tailLogEntryID.Index == 103 {
+	if reply.tailLogEntryID.TermID != 10 || reply.tailLogEntryID.Index != 103 {
 		t.FailNow()
 	}
 }
