@@ -24,6 +24,7 @@ import (
 	"fmt"
 
 	"github.com/su225/raft/node/cluster"
+	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
 )
 
@@ -38,6 +39,18 @@ type Context struct {
 	// MembershipManager is responsible for managing cluster membership
 	// and keeping track of information about other nodes in the cluster
 	cluster.MembershipManager
+
+	// EntryPersistence is responsible for persisting and retrieving
+	// entries written to write-ahead log
+	log.EntryPersistence
+
+	// MetadataPersistence is responsible for persisting and retrieving
+	// metadata of write-ahead log
+	log.MetadataPersistence
+
+	// WriteAheadLogManager is responsible for managing write-ahead log
+	// entries, metadata and persisting them to disk
+	log.WriteAheadLogManager
 }
 
 // NewContext creates a new node context and returns it
@@ -53,9 +66,19 @@ func NewContext(config *Config) *Context {
 	}
 	membershipManager := cluster.NewRealMembershipManager(currentNodeInfo, joiner)
 
+	entryPersistence := log.NewFileBasedEntryPersistence(config.WriteAheadLogEntryPath)
+	metadataPersistence := log.NewFileBasedMetadataPersistence(config.WriteAheadLogMetadataPath)
+	writeAheadLogManager := log.NewWriteAheadLogManagerImpl(
+		entryPersistence,
+		metadataPersistence,
+	)
+
 	return &Context{
 		RealRaftProtobufServer: realRaftProtobufServer,
 		MembershipManager:      membershipManager,
+		EntryPersistence:       entryPersistence,
+		MetadataPersistence:    metadataPersistence,
+		WriteAheadLogManager:   writeAheadLogManager,
 	}
 }
 
@@ -68,6 +91,9 @@ func (ctx *Context) Start() error {
 	if membershipMgrStartErr := ctx.MembershipManager.Start(); membershipMgrStartErr != nil {
 		return membershipMgrStartErr
 	}
+	if writeAheadLogMgrStartErr := ctx.WriteAheadLogManager.Start(); writeAheadLogMgrStartErr != nil {
+		return writeAheadLogMgrStartErr
+	}
 	return nil
 }
 
@@ -76,6 +102,9 @@ func (ctx *Context) Start() error {
 // This allows for graceful shutdown of each of the
 // component in the node.
 func (ctx *Context) Destroy() error {
+	if writeAheadLogMgrDestroyErr := ctx.WriteAheadLogManager.Destroy(); writeAheadLogMgrDestroyErr != nil {
+		return writeAheadLogMgrDestroyErr
+	}
 	if membershipMgrDestroyErr := ctx.MembershipManager.Destroy(); membershipMgrDestroyErr != nil {
 		return membershipMgrDestroyErr
 	}
