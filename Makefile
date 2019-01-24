@@ -5,10 +5,11 @@ build-release:
 	go build .
 
 test-all:
-	go test ./node/cluster
+	go test -timeout=3s ./node/cluster
+	go test -timeout=3s ./node/log
 
 test:
-	go test $(PACKAGE) 
+	go test -timeout=3s $(PACKAGE) 
 
 gen-pb: pb/*.proto
 	protoc -I pb/ pb/raft.proto --go_out=plugins=grpc:pb
