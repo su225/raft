@@ -49,6 +49,9 @@ type RealRaftProtobufServer struct {
 	// commandChannel is used to provide various commands. This
 	// is where operations actually happen
 	commandChannel chan protocolServerCommand
+
+	// The component has lifecycle - it can be started and destroyed
+	common.ComponentLifecycle
 }
 
 // NewRealRaftProtobufServer creates a new instance of RealRaftProtocolServer
