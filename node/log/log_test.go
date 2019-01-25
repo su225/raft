@@ -65,6 +65,20 @@ func TestUpdateMaxCommittedIndexFailsIfGivenIndexIsGreaterThanTail(t *testing.T)
 	}
 }
 
+func TestGetMaxCommittedIndexReturnsTheMaximumCommittedIndex(t *testing.T) {
+	waLogState := getDefaultWriteAheadLogState()
+	expectedWALogState := *waLogState
+	waLogManager := getWriteAheadLogManagerWithMockedPersistence(true, true)
+	cmd := &getMetadata{}
+	reply := waLogManager.handleGetMetadata(waLogState, cmd)
+	if reply == nil || reply.retrievalErr != nil {
+		t.FailNow()
+	}
+	if reflect.DeepEqual(expectedWALogState, reply.metadata) {
+		t.FailNow()
+	}
+}
+
 func TestAppendEntryUpdatesTailEntryIDOnSuccess(t *testing.T) {
 	waLogState := getDefaultWriteAheadLogState()
 	cmd := &appendEntry{entry: &DeleteEntry{TermID: 10, Key: "test"}}

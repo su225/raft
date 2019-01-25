@@ -66,6 +66,11 @@ type WriteAheadLogManager interface {
 	// is returned. This function should not change any entry.
 	GetEntry(index uint64) (entry Entry, err error)
 
+	// GetMaxCommittedIndex returns the maximum committed index at the
+	// time of calling. In case of an error it is returned, in which case
+	// the index returned must not be considered
+	GetMetadata() (metadata WriteAheadLogMetadata, err error)
+
 	// ComponentLifecycle must be implemented so that starting and destroying
 	// the component can be done gracefully. For instance, if there is a write
 	// going on when destruction command is issued then it can wait till the
@@ -142,6 +147,14 @@ func (wal *WriteAheadLogManagerImpl) UpdateMaxCommittedIndex(index uint64) (uint
 	return reply.updatedIndex, reply.updateErr
 }
 
+// GetMetadata returns the metadata of the write-ahead log manager
+func (wal *WriteAheadLogManagerImpl) GetMetadata() (WriteAheadLogMetadata, error) {
+	replyChannel := make(chan *getMetadataReply)
+	wal.commandChannel <- &getMetadata{replyChan: replyChannel}
+	reply := <-replyChannel
+	return reply.metadata, reply.retrievalErr
+}
+
 // AppendEntry appends the entry to the log, persists the entry and metadata after the
 // update and returns the updated tail entry ID. In case there is an error during the
 // operation, then it is returned and metadata is untouched. This is not idempotent
@@ -207,6 +220,8 @@ func (wal *WriteAheadLogManagerImpl) loop() {
 			c.errChan <- wal.handleRecoverWriteAheadLogManager(state, c)
 		case *updateMaxCommittedIndex:
 			c.replyChan <- wal.handleUpdateMaxCommittedIndex(state, c)
+		case *getMetadata:
+			c.replyChan <- wal.handleGetMetadata(state, c)
 		case *appendEntry:
 			c.replyChan <- wal.handleAppendEntry(state, c)
 		case *writeEntry:
@@ -292,6 +307,14 @@ func (wal *WriteAheadLogManagerImpl) handleUpdateMaxCommittedIndex(state *writeA
 		}
 	}
 	return &updateMaxCommittedIndexReply{updatedIndex: state.WriteAheadLogMetadata.MaxCommittedIndex}
+}
+
+func (wal *WriteAheadLogManagerImpl) handleGetMetadata(state *writeAheadLogManagerState, cmd *getMetadata) *getMetadataReply {
+	statusErr := wal.checkOperationalStatus(state)
+	return &getMetadataReply{
+		metadata:     state.WriteAheadLogMetadata,
+		retrievalErr: statusErr,
+	}
 }
 
 func (wal *WriteAheadLogManagerImpl) handleAppendEntry(state *writeAheadLogManagerState, cmd *appendEntry) *writeEntryReply {

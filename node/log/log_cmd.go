@@ -30,6 +30,16 @@ type updateMaxCommittedIndexReply struct {
 	updateErr    error
 }
 
+type getMetadata struct {
+	writeAheadLogManagerCommand
+	replyChan chan *getMetadataReply
+}
+
+type getMetadataReply struct {
+	metadata     WriteAheadLogMetadata
+	retrievalErr error
+}
+
 type appendEntry struct {
 	writeAheadLogManagerCommand
 	entry     Entry
