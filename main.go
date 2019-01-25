@@ -136,6 +136,10 @@ func parseConfig() (*node.Config, error) {
 		 reply. Otherwise it will be timed-out. But the connection might be maintained
 		 to the remote node if possible`)
 
+	maxConnectionRetryAttempts := flag.Uint64("max-conn-retry-attempts", 5,
+		`Maximum connection retry attempts is the maximum number of times the current node
+		 tries to connect to some specified remote node before giving up`)
+
 	flag.Parse()
 	isConfigFileSpecified := len(*configFile) > 0
 	if isConfigFileSpecified {
@@ -143,17 +147,18 @@ func parseConfig() (*node.Config, error) {
 	}
 
 	config := &node.Config{
-		NodeID:                    *nodeID,
-		APIPort:                   uint32(*apiPort),
-		RPCPort:                   uint32(*rpcPort),
-		WriteAheadLogEntryPath:    *writeAheadLogEntryPath,
-		WriteAheadLogMetadataPath: *writeAheadLogMetadataPath,
-		RaftStatePath:             *raftStatePath,
-		JoinMode:                  *joinMode,
-		ClusterConfigPath:         *clusterConfigPath,
-		ElectionTimeoutInMillis:   *electionTimeout,
-		HeartbeatIntervalInMillis: *heartbeatInterval,
-		RPCTimeoutInMillis:        *rpcTimeout,
+		NodeID:                     *nodeID,
+		APIPort:                    uint32(*apiPort),
+		RPCPort:                    uint32(*rpcPort),
+		WriteAheadLogEntryPath:     *writeAheadLogEntryPath,
+		WriteAheadLogMetadataPath:  *writeAheadLogMetadataPath,
+		RaftStatePath:              *raftStatePath,
+		JoinMode:                   *joinMode,
+		ClusterConfigPath:          *clusterConfigPath,
+		ElectionTimeoutInMillis:    *electionTimeout,
+		HeartbeatIntervalInMillis:  *heartbeatInterval,
+		RPCTimeoutInMillis:         *rpcTimeout,
+		MaxConnectionRetryAttempts: uint32(*maxConnectionRetryAttempts),
 	}
 	return config, nil
 }
