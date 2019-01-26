@@ -9,9 +9,9 @@ import (
 // and APIURL represent their RPC and API endpoints
 // respectively.
 type NodeInfo struct {
-	ID     string
-	RPCURL string
-	APIURL string
+	ID     string `json:"id"`
+	RPCURL string `json:"rpc_url"`
+	APIURL string `json:"api_url"`
 }
 
 // MembershipManager defines the operations to be
