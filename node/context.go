@@ -24,10 +24,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
 )
+
+var context = "CONTEXT"
 
 // ContextLifecycleError represents the errors that occur during lifecycle
 // events of the node context. This can be thought of as the consolidated
@@ -133,14 +137,26 @@ func (ctx *Context) Start() error {
 // This allows for graceful shutdown of each of the
 // component in the node.
 func (ctx *Context) Destroy() error {
+	contextErrorMessage := &ContextLifecycleError{Errors: []error{}}
 	if writeAheadLogMgrDestroyErr := ctx.WriteAheadLogManager.Destroy(); writeAheadLogMgrDestroyErr != nil {
-		return writeAheadLogMgrDestroyErr
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, writeAheadLogMgrDestroyErr)
+	}
+	if protobufClientDestroyErr := ctx.RealRaftProtobufClient.Destroy(); protobufClientDestroyErr != nil {
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, protobufClientDestroyErr)
 	}
 	if membershipMgrDestroyErr := ctx.MembershipManager.Destroy(); membershipMgrDestroyErr != nil {
-		return membershipMgrDestroyErr
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, membershipMgrDestroyErr)
 	}
 	if protobufDestroyErr := ctx.RealRaftProtobufServer.Destroy(); protobufDestroyErr != nil {
-		return protobufDestroyErr
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, protobufDestroyErr)
+	}
+	logrus.WithFields(logrus.Fields{
+		logfield.ErrorReason: contextErrorMessage.Error(),
+		logfield.Component:   context,
+		logfield.Event:       "DESTROY",
+	}).Errorln("error while destroying components")
+	if len(contextErrorMessage.Errors) > 0 {
+		return contextErrorMessage
 	}
 	return nil
 }
