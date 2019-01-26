@@ -87,9 +87,10 @@ message InstallSnapshotReply {
 // OpEntry represents the operational log entry that is created as
 // part of the user request to add or remove a key-value pair.
 message OpEntry {
+    uint64 term_id = 1;
     oneof entry {
-        UpsertOp upsert = 1;
-        DeleteOp delete = 2;
+        UpsertOp upsert = 2;
+        DeleteOp delete = 3;
     }
 }
 
