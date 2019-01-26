@@ -3,6 +3,9 @@ package cluster
 import (
 	"encoding/json"
 	"io/ioutil"
+
+	"github.com/sirupsen/logrus"
+	"github.com/su225/raft/logfield"
 )
 
 // Joiner specifies how to join the cluster or
@@ -14,6 +17,8 @@ type Joiner interface {
 	// If there is some error then it is returned
 	DiscoverNodes() ([]NodeInfo, error)
 }
+
+var staticFileBasedJoiner = "STATIC-JOIN"
 
 // StaticFileBasedJoiner reads the config file
 // containing information about cluster and parses
@@ -36,9 +41,16 @@ func (joiner *StaticFileBasedJoiner) DiscoverNodes() ([]NodeInfo, error) {
 	if readErr != nil {
 		return []NodeInfo{}, readErr
 	}
-	var clusterNodes []NodeInfo
-	if unmarshalErr := json.Unmarshal(configBytes, clusterNodes); unmarshalErr != nil {
+	var clusterNodes *[]NodeInfo
+	if unmarshalErr := json.Unmarshal(configBytes, &clusterNodes); unmarshalErr != nil {
 		return []NodeInfo{}, unmarshalErr
 	}
-	return clusterNodes, nil
+	for _, node := range *clusterNodes {
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: staticFileBasedJoiner,
+			logfield.Event:     "PEER-DISCOVERY",
+		}).Debugf("Discovered ID=%s API=%s RPC=%s",
+			node.ID, node.APIURL, node.RPCURL)
+	}
+	return *clusterNodes, nil
 }
