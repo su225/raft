@@ -172,7 +172,7 @@ func (rpcc *RealRaftProtobufClient) putNode(info cluster.NodeInfo) {
 // This operation is safe in concurrent environments
 func (rpcc *RealRaftProtobufClient) getNode(id string) (chan protocolClientCommand, bool) {
 	rpcc.clientMutex.RLock()
-	defer rpcc.clientMutex.Unlock()
+	defer rpcc.clientMutex.RUnlock()
 	if cmdChan, present := rpcc.commandChannels[id]; present {
 		return cmdChan, present
 	}
@@ -452,7 +452,7 @@ func (rpcc *RealRaftProtobufClient) checkOperationalStatus(state *raftProtocolCl
 	if state.isDestroyed {
 		return raftProtocolClientIsDestroyedError
 	}
-	if state.isStarted {
+	if !state.isStarted {
 		return raftProtocolClientIsNotStartedError
 	}
 	return nil
