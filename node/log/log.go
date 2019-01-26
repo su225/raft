@@ -266,8 +266,18 @@ func (wal *WriteAheadLogManagerImpl) handleRecoverWriteAheadLogManager(state *wr
 			logfield.ErrorReason: retrievalErr.Error(),
 			logfield.Component:   writeAheadLog,
 			logfield.Event:       "RECOVERY",
-		}).Errorln("error while recovering state")
-		return retrievalErr
+		}).Errorln("error while recovering state. Setting to zeros and moving on..")
+
+		// Don't crash just because recovery is not successful.
+		// Reset everything to default state and move on
+		state.WriteAheadLogMetadata = WriteAheadLogMetadata{
+			TailEntryID: EntryID{
+				TermID: 0,
+				Index:  0,
+			},
+			MaxCommittedIndex: 0,
+		}
+		return nil
 	}
 	state.WriteAheadLogMetadata = *metadata
 	return nil
