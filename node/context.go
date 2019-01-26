@@ -36,6 +36,10 @@ type Context struct {
 	// messages from other nodes and taking appropriate action
 	*rpc.RealRaftProtobufServer
 
+	// RealRaftProtobufClient is responsible for handling all outgoing
+	// communication from this node
+	*rpc.RealRaftProtobufClient
+
 	// MembershipManager is responsible for managing cluster membership
 	// and keeping track of information about other nodes in the cluster
 	cluster.MembershipManager
@@ -66,6 +70,13 @@ func NewContext(config *Config) *Context {
 	}
 	membershipManager := cluster.NewRealMembershipManager(currentNodeInfo, joiner)
 
+	realRaftProtobufClient := rpc.NewRealRaftProtobufClient(
+		membershipManager,
+		config.NodeID,
+		config.MaxConnectionRetryAttempts,
+		uint64(config.RPCTimeoutInMillis),
+	)
+
 	entryPersistence := log.NewFileBasedEntryPersistence(config.WriteAheadLogEntryPath)
 	metadataPersistence := log.NewFileBasedMetadataPersistence(config.WriteAheadLogMetadataPath)
 	writeAheadLogManager := log.NewWriteAheadLogManagerImpl(
@@ -75,6 +86,7 @@ func NewContext(config *Config) *Context {
 
 	return &Context{
 		RealRaftProtobufServer: realRaftProtobufServer,
+		RealRaftProtobufClient: realRaftProtobufClient,
 		MembershipManager:      membershipManager,
 		EntryPersistence:       entryPersistence,
 		MetadataPersistence:    metadataPersistence,
@@ -90,6 +102,9 @@ func (ctx *Context) Start() error {
 	}
 	if membershipMgrStartErr := ctx.MembershipManager.Start(); membershipMgrStartErr != nil {
 		return membershipMgrStartErr
+	}
+	if protobufClientStartErr := ctx.RealRaftProtobufClient.Start(); protobufClientStartErr != nil {
+		return protobufClientStartErr
 	}
 	if writeAheadLogMgrStartErr := ctx.WriteAheadLogManager.Start(); writeAheadLogMgrStartErr != nil {
 		return writeAheadLogMgrStartErr
