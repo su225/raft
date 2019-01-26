@@ -133,6 +133,8 @@ cluster_node_info.each do |node_info|
     base_election_timeout += 1500
 end
 
+puts command_for_node[0]
+
 # TODO: fix this later. Find a better way of doing this
 `tmux new-session "#{command_for_node[0]}" \\\; \
       split-window "#{command_for_node[1]}" \\\; \
