@@ -63,6 +63,7 @@ message HeartbeatRequest {
 // It just contains sender info containing nodeID and termID. 
 message HeartbeatReply {
     NodeInfo sender_info = 1;
+    bool accept_as_leader = 2;
 }
 
 // SnapshotData is a piece of snapshot data containing either
