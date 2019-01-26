@@ -22,11 +22,27 @@ package node
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
 )
+
+// ContextLifecycleError represents the errors that occur during lifecycle
+// events of the node context. This can be thought of as the consolidated
+// error message derived from errors in various components
+type ContextLifecycleError struct {
+	Errors []error
+}
+
+func (e *ContextLifecycleError) Error() string {
+	errorMessages := make([]string, 0)
+	for _, err := range e.Errors {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	return strings.Join(errorMessages, "\n")
+}
 
 // Context represents the holder for all the components
 // running as part of this Raft node.
