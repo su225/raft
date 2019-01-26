@@ -40,10 +40,11 @@ end.parse!
 # raft cluster like its name, url of RPC and API servers. This can
 # also be serialized and deserialized to/from JSON
 class NodeInfo
-    attr_accessor :node_id, :rpc_url, :api_url
-    
+    attr_accessor :node_id, :rpc_url, :api_url, :rpc_port, :api_port
+
     def initialize(node_id, rpc_port, api_port)
         @node_id = node_id
+        @rpc_port, @api_port = rpc_port, api_port
         @rpc_url = "localhost:#{rpc_port}"
         @api_url = "localhost:#{api_port}"
     end
@@ -74,6 +75,26 @@ end
 
 json_cluster_node_info = cluster_node_info.to_json
 
+def get_node_dir_structure(cluster_dir, nodeinfo)
+    cur_node_id = nodeinfo.node_id
+    node_dir = "#{cluster_dir}/#{cur_node_id}"
+    {
+        node_dir:           node_dir,
+        cluster_config_dir: "#{node_dir}/cluster",
+        entry_dir:          "#{node_dir}/data/entry",
+        metadata_dir:       "#{node_dir}/data/metadata",
+        state_dir:          "#{node_dir}/state",
+        snapshot_dir:       "#{node_dir}/snapshot"
+    }
+end
+
+# All timeouts are milliseconds
+base_election_timeout = 3000
+heartbeat_interval = 500
+rpc_timeout = 1000
+max_conn_retry_attempts = 3
+command_for_node = []
+
 # Generate directory structure for each node. The entire cluster
 # information will be kept in cluster/ directory. It will have a
 # directory for each node with node_id being its name. It will have
@@ -82,15 +103,7 @@ json_cluster_node_info = cluster_node_info.to_json
 cluster_node_info.each do |node_info|
     cur_node_id = node_info.node_id
     puts "Generating directory for #{cur_node_id}"
-    node_dir = "#{cluster_dir}/#{cur_node_id}"
-    node_directories = {
-        cluster_config_dir: "#{node_dir}/cluster",
-        entry_dir:          "#{node_dir}/data/entry",
-        metadata_dir:       "#{node_dir}/data/metadata",
-        state_dir:          "#{node_dir}/state",
-        snapshot_dir:       "#{node_dir}/snapshot"
-    }
-    # Generate directory structure for the current node
+    node_directories = get_node_dir_structure(cluster_dir, node_info)
     node_directories.each do |dir_purpose, dir_path|
         puts "* Generating #{dir_path}"
         FileUtils.mkdir_p dir_path
@@ -102,4 +115,27 @@ cluster_node_info.each do |node_info|
     File.open(cluster_config_file, 'w+') do |f|
         f.write json_cluster_node_info
     end
+
+    command_for_node << """./raft \
+        --id=#{node_info.node_id} \
+        --api-port=#{node_info.api_port} \
+        --rpc-port=#{node_info.rpc_port} \
+        --log-entry-path=#{node_directories[:entry_dir]} \
+        --log-metadata-path=#{node_directories[:metadata_dir]}/metadata.json \
+        --raft-state-path=#{node_directories[:state_dir]}/state.json \
+        --join-mode=static \
+        --cluster-config-path=#{node_directories[:cluster_config_dir]}/config.json \
+        --election-timeout=#{base_election_timeout} \
+        --heartbeat=#{heartbeat_interval} \
+        --rpc-timeout=#{rpc_timeout} \
+        --max-conn-retry-attempts=#{max_conn_retry_attempts}   
+    """
+    base_election_timeout += 1500
 end
+
+# TODO: fix this later. Find a better way of doing this
+`tmux new-session "#{command_for_node[0]}" \\\; \
+      split-window "#{command_for_node[1]}" \\\; \
+      split-window "#{command_for_node[2]}" \\\; \
+      select-layout tiled
+`
