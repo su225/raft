@@ -21,9 +21,9 @@ func NewInMemoryRaftStatePersistence(succeed bool, state *RaftDurableState) *InM
 	}
 }
 
-// PersistState stores the given state if calls are supposed to be successful.
+// PersistRaftState stores the given state if calls are supposed to be successful.
 // Otherwise they return a generic state persistence-related error
-func (p *InMemoryRaftStatePersistence) PersistState(state *RaftDurableState) error {
+func (p *InMemoryRaftStatePersistence) PersistRaftState(state *RaftDurableState) error {
 	if !p.ShouldSucceed {
 		return errStatePersistence
 	}
@@ -31,9 +31,9 @@ func (p *InMemoryRaftStatePersistence) PersistState(state *RaftDurableState) err
 	return nil
 }
 
-// RetrieveState returns the stored state if calls are supposed to be successful.
+// RetrieveRaftState returns the stored state if calls are supposed to be successful.
 // Otherwise they return a generic state persistence-related error
-func (p *InMemoryRaftStatePersistence) RetrieveState() (*RaftDurableState, error) {
+func (p *InMemoryRaftStatePersistence) RetrieveRaftState() (*RaftDurableState, error) {
 	if !p.ShouldSucceed {
 		return nil, errStatePersistence
 	}
