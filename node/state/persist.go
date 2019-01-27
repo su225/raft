@@ -1,0 +1,61 @@
+package state
+
+import (
+	"encoding/json"
+	"io/ioutil"
+)
+
+// RaftStatePersistence defines the operations that must be
+// supported by implementation wishing to persist/retrieve
+// raft-state information across crashes and restarts
+type RaftStatePersistence interface {
+	// PersistRaftState persists the durable part of raft
+	// state. If there is an error in the process then it
+	// is returned, otherwise nil
+	PersistRaftState(state *RaftDurableState) error
+
+	// RetrieveMetadata retrieves durable part of raft state
+	// If there is an error in the process then nil metadata
+	// is returned along with the error.
+	RetrieveRaftState() (*RaftDurableState, error)
+}
+
+// FileBasedRaftStatePersistence persists raft-state to
+// a simple file in JSON format. The path of the state
+// file must be specified
+type FileBasedRaftStatePersistence struct {
+	StateFilePath string
+}
+
+// NewFileBasedRaftStatePersistence creates a new instance of File-based raft-state
+// persistence where stateFilePath specifies the path to the state file.
+func NewFileBasedRaftStatePersistence(stateFilePath string) *FileBasedRaftStatePersistence {
+	return &FileBasedRaftStatePersistence{StateFilePath: stateFilePath}
+}
+
+// PersistRaftState persists raft state to the given file. If there are any
+// errors during the process it is returned
+func (p *FileBasedRaftStatePersistence) PersistRaftState(state *RaftDurableState) error {
+	marshalBytes, marshalErr := json.Marshal(state)
+	if marshalErr != nil {
+		return marshalErr
+	}
+	if writeErr := ioutil.WriteFile(p.StateFilePath, marshalBytes, 0600); writeErr != nil {
+		return writeErr
+	}
+	return nil
+}
+
+// RetrieveMetadata retrieves raft state from the speicified file. If there
+// are any errors during the process then it is returned.
+func (p *FileBasedRaftStatePersistence) RetrieveMetadata() (*RaftDurableState, error) {
+	stateBytes, readErr := ioutil.ReadFile(p.StateFilePath)
+	if readErr != nil {
+		return nil, readErr
+	}
+	var state RaftDurableState
+	if unmarshalErr := json.Unmarshal(stateBytes, &state); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+	return &state, nil
+}
