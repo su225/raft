@@ -46,9 +46,9 @@ func (p *FileBasedRaftStatePersistence) PersistRaftState(state *RaftDurableState
 	return nil
 }
 
-// RetrieveMetadata retrieves raft state from the speicified file. If there
+// RetrieveRaftState retrieves raft state from the speicified file. If there
 // are any errors during the process then it is returned.
-func (p *FileBasedRaftStatePersistence) RetrieveMetadata() (*RaftDurableState, error) {
+func (p *FileBasedRaftStatePersistence) RetrieveRaftState() (*RaftDurableState, error) {
 	stateBytes, readErr := ioutil.ReadFile(p.StateFilePath)
 	if readErr != nil {
 		return nil, readErr
