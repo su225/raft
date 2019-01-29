@@ -85,6 +85,9 @@ type Context struct {
 	// RaftStatePersistence is responsible for persisting and retrieving
 	// raft-related state data.
 	state.RaftStatePersistence
+
+	// Voter is responsible for deciding whether to grant or reject vote
+	*state.Voter
 }
 
 // NewContext creates a new node context and returns it
@@ -119,6 +122,10 @@ func NewContext(config *Config) *Context {
 		config.NodeID,
 		raftStatePersistence,
 	)
+	voter := state.NewVoter(
+		raftStateManager,
+		writeAheadLogManager,
+	)
 
 	return &Context{
 		RealRaftProtobufServer: realRaftProtobufServer,
@@ -129,6 +136,7 @@ func NewContext(config *Config) *Context {
 		WriteAheadLogManager:   writeAheadLogManager,
 		RaftStateManager:       raftStateManager,
 		RaftStatePersistence:   raftStatePersistence,
+		Voter:                  voter,
 	}
 }
 
