@@ -29,6 +29,7 @@ import (
 	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
+	"github.com/su225/raft/node/state"
 )
 
 var context = "CONTEXT"
@@ -75,6 +76,15 @@ type Context struct {
 	// WriteAheadLogManager is responsible for managing write-ahead log
 	// entries, metadata and persisting them to disk
 	log.WriteAheadLogManager
+
+	// RaftStateManager is responsible for managing state related to
+	// raft node safely in concurrent environments. It is also responsible
+	// for recovery of state across restarts/crashes
+	state.RaftStateManager
+
+	// RaftStatePersistence is responsible for persisting and retrieving
+	// raft-related state data.
+	state.RaftStatePersistence
 }
 
 // NewContext creates a new node context and returns it
@@ -104,6 +114,12 @@ func NewContext(config *Config) *Context {
 		metadataPersistence,
 	)
 
+	raftStatePersistence := state.NewFileBasedRaftStatePersistence(config.RaftStatePath)
+	raftStateManager := state.NewRealRaftStateManager(
+		config.NodeID,
+		raftStatePersistence,
+	)
+
 	return &Context{
 		RealRaftProtobufServer: realRaftProtobufServer,
 		RealRaftProtobufClient: realRaftProtobufClient,
@@ -111,6 +127,8 @@ func NewContext(config *Config) *Context {
 		EntryPersistence:       entryPersistence,
 		MetadataPersistence:    metadataPersistence,
 		WriteAheadLogManager:   writeAheadLogManager,
+		RaftStateManager:       raftStateManager,
+		RaftStatePersistence:   raftStatePersistence,
 	}
 }
 
@@ -129,6 +147,9 @@ func (ctx *Context) Start() error {
 	if writeAheadLogMgrStartErr := ctx.WriteAheadLogManager.Start(); writeAheadLogMgrStartErr != nil {
 		return writeAheadLogMgrStartErr
 	}
+	if stateMgrStartErr := ctx.RaftStateManager.Start(); stateMgrStartErr != nil {
+		return stateMgrStartErr
+	}
 	return nil
 }
 
@@ -138,6 +159,9 @@ func (ctx *Context) Start() error {
 // component in the node.
 func (ctx *Context) Destroy() error {
 	contextErrorMessage := &ContextLifecycleError{Errors: []error{}}
+	if stateMgrDestroyErr := ctx.RaftStateManager.Destroy(); stateMgrDestroyErr != nil {
+		return stateMgrDestroyErr
+	}
 	if writeAheadLogMgrDestroyErr := ctx.WriteAheadLogManager.Destroy(); writeAheadLogMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, writeAheadLogMgrDestroyErr)
 	}
