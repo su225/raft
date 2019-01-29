@@ -1,6 +1,8 @@
 package state
 
 import (
+	"github.com/sirupsen/logrus"
+	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/common"
 )
 
@@ -64,6 +66,10 @@ type RaftState struct {
 	// it will be an empty string.
 	CurrentLeader string
 }
+
+var raftStateManager = "STATE-MGR"
+var raftStateManagerNotStartedError = &common.ComponentHasNotStartedError{ComponentName: raftStateManager}
+var raftStateManagerIsDestroyedError = &common.ComponentIsDestroyedError{ComponentName: raftStateManager}
 
 // RaftStateManager is responsible for managing state of the
 // raft node like keeping track of role, status, voting info
@@ -222,7 +228,12 @@ func (s *RealRaftStateManager) DowngradeToFollower(leaderNodeID string, termID u
 // 1. CANDIDATE -> LEADER => happens when this node obtains majority votes
 //    in the election for the termID in which it is a candidate.
 func (s *RealRaftStateManager) UpgradeToLeader(termID uint64) error {
-	return nil
+	errorChannel := make(chan error)
+	s.commandChannel <- &upgradeToLeader{
+		leaderTermID: termID,
+		errorChan:    errorChannel,
+	}
+	return <-errorChannel
 }
 
 // BecomeCandidate transforms the node to a candidate. The node must be a
@@ -238,44 +249,59 @@ func (s *RealRaftStateManager) UpgradeToLeader(termID uint64) error {
 //    there is another election timeout. In this case, the candidate becomes
 //    candidate for the next term.
 func (s *RealRaftStateManager) BecomeCandidate(termID uint64) error {
-	return nil
+	errorChannel := make(chan error)
+	s.commandChannel <- &becomeCandidate{
+		electionTermID: termID,
+		errorChan:      errorChannel,
+	}
+	return <-errorChannel
 }
 
 // SetVotedForTerm is used to record the candidate to which vote was granted in
 // the current term. If the node has already voted in the current term then it
 // cannot vote in this term and hence it is an error.
 //
-// The operation succeeds under one of the following conditions
-// 1. TermID is the same as current term ID and the node has not yet voted
+// The operation succeeds under the condition
 // 2. TermID is higher than the current term ID.
 func (s *RealRaftStateManager) SetVotedForTerm(termID uint64, votedFor string) error {
-	return nil
+	errorChannel := make(chan error)
+	s.commandChannel <- &setVotedForTerm{
+		votingTermID: termID,
+		votedForNode: votedFor,
+		errorChan:    errorChannel,
+	}
+	return <-errorChannel
 }
 
 // GetVotedForTerm returns the node to which the current node voted along with
 // the term. This should not result in error or panic.
 func (s *RealRaftStateManager) GetVotedForTerm() (uint64, string) {
-	return 0, ""
+	replyChannel := make(chan *getVotedForTermReply)
+	s.commandChannel <- &getVotedForTerm{replyChan: replyChannel}
+	reply := <-replyChannel
+	return reply.votingTermID, reply.votedForNode
 }
 
 // GetCurrentTermID returns the current term ID
 func (s *RealRaftStateManager) GetCurrentTermID() uint64 {
-	return 0
+	return s.GetRaftState().RaftDurableState.CurrentTermID
 }
 
 // GetCurrentRole returns the current role of the node
 func (s *RealRaftStateManager) GetCurrentRole() RaftRole {
-	return RoleFollower
+	return s.GetRaftState().CurrentRole
 }
 
 // GetCurrentLeader returns the current leader in the cluster
 func (s *RealRaftStateManager) GetCurrentLeader() (string, bool) {
-	return "", false
+	return s.GetRaftState().CurrentLeader, len(s.GetRaftState().CurrentLeader) > 0
 }
 
 // GetRaftState returns the snapshot of the current raft state.
 func (s *RealRaftStateManager) GetRaftState() RaftState {
-	return RaftState{}
+	replyChannel := make(chan *getRaftStateReply)
+	s.commandChannel <- &getRaftState{replyChan: replyChannel}
+	return (<-replyChannel).state
 }
 
 type raftStateManagerState struct {
@@ -326,37 +352,197 @@ func (s *RealRaftStateManager) loop() {
 }
 
 func (s *RealRaftStateManager) handleRaftStateManagerStart(state *raftStateManagerState, cmd *raftStateManagerStart) error {
+	if state.isDestroyed {
+		return raftStateManagerIsDestroyedError
+	}
+	if state.isStarted {
+		return nil
+	}
+	state.isStarted = true
 	return nil
 }
 
 func (s *RealRaftStateManager) handleRaftStateManagerDestroy(state *raftStateManagerState, cmd *raftStateManagerDestroy) error {
+	if state.isDestroyed {
+		return nil
+	}
+	state.isDestroyed = true
 	return nil
 }
 
 func (s *RealRaftStateManager) handleRaftStateManagerRecover(state *raftStateManagerState, cmd *raftStateManagerRecover) error {
+	if state.isDestroyed {
+		return raftStateManagerIsDestroyedError
+	}
+	raftStateRetrieved, retrieveErr := s.RaftStatePersistence.RetrieveRaftState()
+	if retrieveErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: retrieveErr.Error(),
+			logfield.Component:   raftStateManager,
+			logfield.Event:       "RECOVERY",
+		}).Error("error while recovering state. set to default and move on..")
+		return nil
+	}
+	state.RaftState.RaftDurableState = *raftStateRetrieved
 	return nil
 }
 
 func (s *RealRaftStateManager) handleDowngradeToFollower(state *raftStateManagerState, cmd *downgradeToFollower) error {
+	if statusErr := s.checkOperationalStatus(state); statusErr != nil {
+		return statusErr
+	}
+	beforeTermID := state.RaftState.RaftDurableState.CurrentTermID
+	beforeVotedFor := state.RaftState.RaftDurableState.VotedFor
+
+	curTermID, remoteTermID := beforeTermID, cmd.remoteTermID
+	curRole := state.RaftState.CurrentRole
+	remoteLeaderID := cmd.leaderNodeID
+
+	if curTermID > remoteTermID {
+		return nil
+	}
+	if curTermID < remoteTermID {
+		state.RaftState.RaftDurableState.CurrentTermID = remoteTermID
+		state.RaftState.RaftDurableState.VotedFor = ""
+		state.CurrentRole = RoleFollower
+		state.CurrentLeader = remoteLeaderID
+	} else {
+		if curRole == RoleLeader {
+			return nil
+		}
+		state.CurrentRole = RoleFollower
+		state.CurrentLeader = remoteLeaderID
+	}
+	if persistErr := s.RaftStatePersistence.PersistRaftState(&state.RaftState.RaftDurableState); persistErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: persistErr.Error(),
+			logfield.Component:   raftStateManager,
+			logfield.Event:       "DOWNGRADE-TO-FOLLOWER",
+		}).Errorf("error while persisting state")
+		state.RaftState.RaftDurableState.CurrentTermID = beforeTermID
+		state.RaftState.RaftDurableState.VotedFor = beforeVotedFor
+		return persistErr
+	}
 	return nil
 }
 
 func (s *RealRaftStateManager) handleUpgradeToLeader(state *raftStateManagerState, cmd *upgradeToLeader) error {
+	if statusErr := s.checkOperationalStatus(state); statusErr != nil {
+		return statusErr
+	}
+	curTermID, remoteTermID, curRole := state.CurrentTermID, cmd.leaderTermID, state.CurrentRole
+	if curTermID == remoteTermID && curRole == RoleLeader {
+		return nil
+	}
+	var upgradeErr error
+	if curTermID != remoteTermID {
+		upgradeErr = &TermIDMismatchError{
+			ExpectedTermID: curTermID,
+			ActualTermID:   remoteTermID,
+		}
+	}
+	if curRole != RoleCandidate {
+		upgradeErr = &InvalidRoleTransitionError{
+			FromRole: curRole,
+			ToRole:   RoleLeader,
+		}
+	}
+	if upgradeErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: upgradeErr.Error(),
+			logfield.Component:   raftStateManager,
+			logfield.Event:       "UPGRADE-TO-LEADER",
+		})
+		return upgradeErr
+	}
+	state.CurrentLeader = s.CurrentNodeID
+	state.CurrentRole = RoleLeader
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: raftStateManager,
+		logfield.Event:     "UPGRADE-TO-LEADER",
+	}).Debugf("node elected as leader for term %d", curTermID)
 	return nil
 }
 
 func (s *RealRaftStateManager) handleBecomeCandidate(state *raftStateManagerState, cmd *becomeCandidate) error {
+	if statusErr := s.checkOperationalStatus(state); statusErr != nil {
+		return statusErr
+	}
+	beforeTermID, beforeVotedFor := state.CurrentTermID, state.VotedFor
+	curTermID, candidateTermID, curRole := state.CurrentTermID, cmd.electionTermID, state.CurrentRole
+	if curRole == RoleLeader {
+		return &InvalidRoleTransitionError{
+			FromRole: RoleLeader,
+			ToRole:   RoleCandidate,
+		}
+	}
+	if candidateTermID <= curTermID {
+		return &TermIDMustBeGreaterError{StrictLowerBound: curTermID}
+	}
+	state.CurrentRole = RoleCandidate
+	state.CurrentTermID = candidateTermID
+	state.VotedFor = s.CurrentNodeID
+	state.CurrentLeader = ""
+	if persistErr := s.RaftStatePersistence.PersistRaftState(&state.RaftDurableState); persistErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: persistErr.Error(),
+			logfield.Component:   raftStateManager,
+			logfield.Event:       "BECOME-CANDIDATE",
+		}).Errorf("failed to become candidate for term %d", candidateTermID)
+		state.CurrentTermID = beforeTermID
+		state.VotedFor = beforeVotedFor
+		state.CurrentRole = RoleFollower
+		state.CurrentLeader = ""
+		return persistErr
+	}
 	return nil
 }
 
 func (s *RealRaftStateManager) handleSetVotedForTerm(state *raftStateManagerState, cmd *setVotedForTerm) error {
-	return nil
+	if statusErr := s.checkOperationalStatus(state); statusErr != nil {
+		return statusErr
+	}
+	currentTermID, remoteTermID := state.CurrentTermID, cmd.votingTermID
+	if currentTermID < remoteTermID {
+		beforeRaftDurableState := state.RaftDurableState
+
+		state.RaftState.RaftDurableState.VotedFor = cmd.votedForNode
+		state.RaftState.RaftDurableState.CurrentTermID = remoteTermID
+		state.RaftState.CurrentRole = RoleFollower
+		state.RaftState.CurrentLeader = ""
+
+		if statePersistErr := s.RaftStatePersistence.PersistRaftState(&state.RaftDurableState); statePersistErr != nil {
+			logrus.WithFields(logrus.Fields{
+				logfield.ErrorReason: statePersistErr.Error(),
+				logfield.Component:   raftStateManager,
+				logfield.Event:       "SET-VOTED-FOR",
+			}).Errorf("failed to switch to %d and vote %s",
+				cmd.votingTermID, cmd.votedForNode)
+			state.RaftState.RaftDurableState = beforeRaftDurableState
+			return statePersistErr
+		}
+		return nil
+	}
+	return &TermIDMustBeGreaterError{StrictLowerBound: currentTermID}
 }
 
 func (s *RealRaftStateManager) handleGetVotedForTerm(state *raftStateManagerState, cmd *getVotedForTerm) *getVotedForTermReply {
-	return nil
+	return &getVotedForTermReply{
+		votedForNode: state.RaftState.RaftDurableState.VotedFor,
+		votingTermID: state.RaftState.RaftDurableState.CurrentTermID,
+	}
 }
 
 func (s *RealRaftStateManager) handleGetRaftState(state *raftStateManagerState, cmd *getRaftState) *getRaftStateReply {
+	return &getRaftStateReply{state: state.RaftState}
+}
+
+func (s *RealRaftStateManager) checkOperationalStatus(state *raftStateManagerState) error {
+	if state.isDestroyed {
+		return raftStateManagerIsDestroyedError
+	}
+	if !state.isStarted {
+		return raftStateManagerNotStartedError
+	}
 	return nil
 }
