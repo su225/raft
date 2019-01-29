@@ -69,6 +69,11 @@ func (w *MockWriteAheadLogManager) GetEntry(index uint64) (Entry, error) {
 	return nil, errWriteAheadLog
 }
 
+// GetMetadata returns the metadata
+func (w *MockWriteAheadLogManager) GetMetadata() (WriteAheadLogMetadata, error) {
+	return w.WriteAheadLogMetadata, nil
+}
+
 // Start is a no-op
 func (w *MockWriteAheadLogManager) Start() error {
 	return nil
