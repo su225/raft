@@ -134,6 +134,8 @@ cluster_node_info.each do |node_info|
 end
 
 puts command_for_node[0]
+puts command_for_node[1]
+puts command_for_node[2]
 
 # TODO: fix this later. Find a better way of doing this
 `tmux new-session "#{command_for_node[0]}" \\\; \
