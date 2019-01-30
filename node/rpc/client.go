@@ -26,11 +26,11 @@ type RaftProtobufClient interface {
 	// RequestVote requests the vote from the node specified by nodeID for the
 	// term "curTermID". It also sends some log metadata to the remote node to
 	// help the other node decide on voting
-	RequestVote(curTermID uint64, nodeID string, termID uint64, lastLogEntryID log.EntryID) (voteGranted bool, votingErr error)
+	RequestVote(curTermID uint64, nodeID string, lastLogEntryID log.EntryID) (voteGranted bool, votingErr error)
 
 	// Heartbeat sends heartbeat to the remote node. It should return true if
 	// the remote node accepts authority of this not or false otherwise.
-	Heartbeat(curTermID uint64, nodeID string, termID, maxCommittedIndex uint64) (acceptedAsLeader bool, heartbeatErr error)
+	Heartbeat(curTermID uint64, nodeID string, maxCommittedIndex uint64) (acceptedAsLeader bool, heartbeatErr error)
 
 	// AppendEntry tries to append the given entry to the log of the remote node.
 	// If replication is successful, then true is returned or false otherwise.
@@ -127,7 +127,7 @@ func (rpcc *RealRaftProtobufClient) Destroy() error {
 
 // RequestVote requests the remote node. The function returns true if the remote
 // node grants vote, false otherwise. If there is an error then it is returned.
-func (rpcc *RealRaftProtobufClient) RequestVote(curTermID uint64, nodeID string, termID uint64, lastLogEntryID log.EntryID) (bool, error) {
+func (rpcc *RealRaftProtobufClient) RequestVote(curTermID uint64, nodeID string, lastLogEntryID log.EntryID) (bool, error) {
 	if cmdChan, isPresent := rpcc.getNode(nodeID); isPresent {
 		replyChan := make(chan *clientRequestVoteReply)
 		cmdChan <- &clientRequestVote{
@@ -144,7 +144,7 @@ func (rpcc *RealRaftProtobufClient) RequestVote(curTermID uint64, nodeID string,
 // Heartbeat sends heartbeat to the given node in the cluster. The function returns true
 // if the remote node accepts the authority of this node in the cluster (as leader), false
 // otherwise. If there is an error during this operation, it is returned
-func (rpcc *RealRaftProtobufClient) Heartbeat(curTermID uint64, nodeID string, termID, maxCommittedIndex uint64) (bool, error) {
+func (rpcc *RealRaftProtobufClient) Heartbeat(curTermID uint64, nodeID string, maxCommittedIndex uint64) (bool, error) {
 	if cmdChan, isPresent := rpcc.getNode(nodeID); isPresent {
 		replyChan := make(chan *clientHeartbeatReply)
 		cmdChan <- &clientHeartbeat{
