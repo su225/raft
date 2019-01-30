@@ -9,7 +9,7 @@ import (
 // and APIURL represent their RPC and API endpoints
 // respectively.
 type NodeInfo struct {
-	ID     string `json:"id"`
+	ID     string `json:"node_id"`
 	RPCURL string `json:"rpc_url"`
 	APIURL string `json:"api_url"`
 }
