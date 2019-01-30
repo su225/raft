@@ -77,10 +77,6 @@ type RaftStateManagerEventSubscription interface {
 	// NotifyChannel returns the channel that must be used by
 	// the RaftStateManager to send notification to the listener
 	NotifyChannel() chan<- RaftStateManagerEvent
-
-	// IsSubscribed returns true if the subscription is still active.
-	// If it is not, then notifications are not sent
-	IsSubscribed() bool
 }
 
 // RaftStateManager is responsible for managing state of the
@@ -591,8 +587,6 @@ func (s *RealRaftStateManager) notifyDowngradeToFollower(state *raftStateManager
 
 func (s *RealRaftStateManager) notifyEvent(event RaftStateManagerEvent) {
 	for _, subscription := range s.subscriptions {
-		if subscription.IsSubscribed() {
-			subscription.NotifyChannel() <- event
-		}
+		subscription.NotifyChannel() <- event
 	}
 }
