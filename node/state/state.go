@@ -71,6 +71,18 @@ var raftStateManager = "STATE-MGR"
 var raftStateManagerNotStartedError = &common.ComponentHasNotStartedError{ComponentName: raftStateManager}
 var raftStateManagerIsDestroyedError = &common.ComponentIsDestroyedError{ComponentName: raftStateManager}
 
+// RaftStateManagerEventSubscription represents the subscription to
+// RaftStateManager to listen to various events like change in role
+type RaftStateManagerEventSubscription interface {
+	// NotifyChannel returns the channel that must be used by
+	// the RaftStateManager to send notification to the listener
+	NotifyChannel() chan<- RaftStateManagerEvent
+
+	// IsSubscribed returns true if the subscription is still active.
+	// If it is not, then notifications are not sent
+	IsSubscribed() bool
+}
+
 // RaftStateManager is responsible for managing state of the
 // raft node like keeping track of role, status, voting info
 // and so on. It is also responsible for persisting some of
@@ -125,6 +137,10 @@ type RaftStateManager interface {
 	// (true if known, false otherwise)
 	GetCurrentLeader() (string, bool)
 
+	// RegisterSubscription registers raft state manager event
+	// subscription.
+	RegisterSubscription(subscription RaftStateManagerEventSubscription)
+
 	// Recoverable indicates that there is some state which
 	// must be recoverable between crashes
 	common.Recoverable
@@ -139,6 +155,7 @@ type RaftStateManager interface {
 type RealRaftStateManager struct {
 	CurrentNodeID  string
 	commandChannel chan raftStateManagerCommand
+	subscriptions  []RaftStateManagerEventSubscription
 	RaftStatePersistence
 }
 
@@ -152,8 +169,14 @@ func NewRealRaftStateManager(
 	return &RealRaftStateManager{
 		CurrentNodeID:        currentNodeID,
 		commandChannel:       make(chan raftStateManagerCommand),
+		subscriptions:        make([]RaftStateManagerEventSubscription, 0),
 		RaftStatePersistence: statePersistence,
 	}
+}
+
+// RegisterSubscription registers event subscription
+func (s *RealRaftStateManager) RegisterSubscription(subscription RaftStateManagerEventSubscription) {
+	s.subscriptions = append(s.subscriptions, subscription)
 }
 
 // Start starts the RealRaftStateManager and makes it operational. If
@@ -423,6 +446,7 @@ func (s *RealRaftStateManager) handleDowngradeToFollower(state *raftStateManager
 		state.RaftState.RaftDurableState.VotedFor = beforeVotedFor
 		return persistErr
 	}
+	s.notifyDowngradeToFollower(state)
 	return nil
 }
 
@@ -461,6 +485,7 @@ func (s *RealRaftStateManager) handleUpgradeToLeader(state *raftStateManagerStat
 		logfield.Component: raftStateManager,
 		logfield.Event:     "UPGRADE-TO-LEADER",
 	}).Debugf("node elected as leader for term %d", curTermID)
+	s.notifyUpgradeToLeader(state)
 	return nil
 }
 
@@ -495,6 +520,7 @@ func (s *RealRaftStateManager) handleBecomeCandidate(state *raftStateManagerStat
 		state.CurrentLeader = ""
 		return persistErr
 	}
+	s.notifyBecomeCandidate(state)
 	return nil
 }
 
@@ -521,6 +547,7 @@ func (s *RealRaftStateManager) handleSetVotedForTerm(state *raftStateManagerStat
 			state.RaftState.RaftDurableState = beforeRaftDurableState
 			return statePersistErr
 		}
+		s.notifyDowngradeToFollower(state)
 		return nil
 	}
 	return &TermIDMustBeGreaterError{StrictLowerBound: currentTermID}
@@ -545,4 +572,27 @@ func (s *RealRaftStateManager) checkOperationalStatus(state *raftStateManagerSta
 		return raftStateManagerNotStartedError
 	}
 	return nil
+}
+
+func (s *RealRaftStateManager) notifyUpgradeToLeader(state *raftStateManagerState) {
+	s.notifyEvent(&UpgradeToLeaderEvent{TermID: state.CurrentTermID})
+}
+
+func (s *RealRaftStateManager) notifyBecomeCandidate(state *raftStateManagerState) {
+	s.notifyEvent(&BecomeCandidateEvent{TermID: state.CurrentTermID})
+}
+
+func (s *RealRaftStateManager) notifyDowngradeToFollower(state *raftStateManagerState) {
+	s.notifyEvent(&DowngradeToFollowerEvent{
+		TermID:        state.CurrentTermID,
+		CurrentLeader: state.CurrentLeader,
+	})
+}
+
+func (s *RealRaftStateManager) notifyEvent(event RaftStateManagerEvent) {
+	for _, subscription := range s.subscriptions {
+		if subscription.IsSubscribed() {
+			subscription.NotifyChannel() <- event
+		}
+	}
 }

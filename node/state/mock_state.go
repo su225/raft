@@ -91,6 +91,11 @@ func (s *MockRaftStateManager) GetCurrentLeader() (string, bool) {
 	return s.CurrentLeader, len(s.CurrentLeader) > 0
 }
 
+// RegisterSubscription is a no-op here
+func (s *MockRaftStateManager) RegisterSubscription(subscription RaftStateManagerEventSubscription) {
+	// no-op
+}
+
 // Recover is a no-op
 func (s *MockRaftStateManager) Recover() error {
 	return nil
