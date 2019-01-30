@@ -18,10 +18,21 @@ type ComponentIsDestroyedError struct {
 	Message       string
 }
 
+// ComponentIsPausedError is invoked when an operation is invoked
+// and it requires the component to be functional and running
+type ComponentIsPausedError struct {
+	ComponentName string
+	Message       string
+}
+
 func (e *ComponentHasNotStartedError) Error() string {
 	return fmt.Sprintf("Component %s has not yet started. Message=%s", e.ComponentName, e.Message)
 }
 
 func (e *ComponentIsDestroyedError) Error() string {
 	return fmt.Sprintf("Component %s is destroyed. Message=%s", e.ComponentName, e.Message)
+}
+
+func (e *ComponentIsPausedError) Error() string {
+	return fmt.Sprintf("Component %s is paused. Message=%s", e.ComponentName, e.Message)
 }
