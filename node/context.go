@@ -59,7 +59,7 @@ type Context struct {
 
 	// RealRaftProtobufClient is responsible for handling all outgoing
 	// communication from this node
-	*rpc.RealRaftProtobufClient
+	rpc.RaftProtobufClient
 
 	// MembershipManager is responsible for managing cluster membership
 	// and keeping track of information about other nodes in the cluster
@@ -129,7 +129,7 @@ func NewContext(config *Config) *Context {
 
 	return &Context{
 		RealRaftProtobufServer: realRaftProtobufServer,
-		RealRaftProtobufClient: realRaftProtobufClient,
+		RaftProtobufClient:     realRaftProtobufClient,
 		MembershipManager:      membershipManager,
 		EntryPersistence:       entryPersistence,
 		MetadataPersistence:    metadataPersistence,
@@ -149,7 +149,7 @@ func (ctx *Context) Start() error {
 	if membershipMgrStartErr := ctx.MembershipManager.Start(); membershipMgrStartErr != nil {
 		return membershipMgrStartErr
 	}
-	if protobufClientStartErr := ctx.RealRaftProtobufClient.Start(); protobufClientStartErr != nil {
+	if protobufClientStartErr := ctx.RaftProtobufClient.Start(); protobufClientStartErr != nil {
 		return protobufClientStartErr
 	}
 	if writeAheadLogMgrStartErr := ctx.WriteAheadLogManager.Start(); writeAheadLogMgrStartErr != nil {
@@ -173,7 +173,7 @@ func (ctx *Context) Destroy() error {
 	if writeAheadLogMgrDestroyErr := ctx.WriteAheadLogManager.Destroy(); writeAheadLogMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, writeAheadLogMgrDestroyErr)
 	}
-	if protobufClientDestroyErr := ctx.RealRaftProtobufClient.Destroy(); protobufClientDestroyErr != nil {
+	if protobufClientDestroyErr := ctx.RaftProtobufClient.Destroy(); protobufClientDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, protobufClientDestroyErr)
 	}
 	if membershipMgrDestroyErr := ctx.MembershipManager.Destroy(); membershipMgrDestroyErr != nil {

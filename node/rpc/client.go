@@ -20,6 +20,27 @@ var raftProtocolClient = "RPC-CLIENT"
 var raftProtocolClientIsNotStartedError = &common.ComponentHasNotStartedError{ComponentName: raftProtocolClient}
 var raftProtocolClientIsDestroyedError = &common.ComponentIsDestroyedError{ComponentName: raftProtocolClient}
 
+// RaftProtobufClient represents the component which is responsible
+// for handling all outgoing protocol related communications
+type RaftProtobufClient interface {
+	// RequestVote requests the vote from the node specified by nodeID for the
+	// term "curTermID". It also sends some log metadata to the remote node to
+	// help the other node decide on voting
+	RequestVote(curTermID uint64, nodeID string, termID uint64, lastLogEntryID log.EntryID) (voteGranted bool, votingErr error)
+
+	// Heartbeat sends heartbeat to the remote node. It should return true if
+	// the remote node accepts authority of this not or false otherwise.
+	Heartbeat(curTermID uint64, nodeID string, termID, maxCommittedIndex uint64) (acceptedAsLeader bool, heartbeatErr error)
+
+	// AppendEntry tries to append the given entry to the log of the remote node.
+	// If replication is successful, then true is returned or false otherwise.
+	AppendEntry(curTermID uint64, nodeID string, prevEntryID log.EntryID, index uint64, entry log.Entry) (appended bool, appendErr error)
+
+	// ComponentLifecycle indicates that this is a component and
+	// has lifecycle events - start and destroy
+	common.ComponentLifecycle
+}
+
 // RealRaftProtobufClient is responsible for handling all protocol
 // related outgoing messages.
 type RealRaftProtobufClient struct {
@@ -42,10 +63,6 @@ type RealRaftProtobufClient struct {
 
 	// commandChannels represent the channel per client
 	commandChannels map[string]chan protocolClientCommand
-
-	// ComponentLifecycle indicates that this is a component and
-	// has lifecycle events - start and destroy
-	common.ComponentLifecycle
 }
 
 // NewRealRaftProtobufClient creates a new instance of real raft
