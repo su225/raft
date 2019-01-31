@@ -28,6 +28,8 @@ import (
 	"github.com/sirupsen/logrus"
 	. "github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/common"
+	"github.com/su225/raft/node/log"
+	"github.com/su225/raft/node/state"
 	"github.com/su225/raft/pb"
 	"google.golang.org/grpc"
 )
@@ -46,6 +48,13 @@ type RealRaftProtobufServer struct {
 	// is the port API-server listens to
 	RPCPort uint32
 
+	// Voter is responsible for making voting decisions
+	// on behalf of the node
+	*state.Voter
+
+	// RaftStateManager is responsible for managing state related to raft
+	state.RaftStateManager
+
 	// commandChannel is used to provide various commands. This
 	// is where operations actually happen
 	commandChannel chan protocolServerCommand
@@ -57,10 +66,16 @@ type RealRaftProtobufServer struct {
 // NewRealRaftProtobufServer creates a new instance of RealRaftProtocolServer
 // But this method does not start the server. In other words, server won't be
 // listening to incoming messages at the given port.
-func NewRealRaftProtobufServer(rpcPort uint32) *RealRaftProtobufServer {
+func NewRealRaftProtobufServer(
+	rpcPort uint32,
+	voter *state.Voter,
+	raftStateMgr state.RaftStateManager,
+) *RealRaftProtobufServer {
 	return &RealRaftProtobufServer{
-		RPCPort:        rpcPort,
-		commandChannel: make(chan protocolServerCommand),
+		RPCPort:          rpcPort,
+		Voter:            voter,
+		RaftStateManager: raftStateMgr,
+		commandChannel:   make(chan protocolServerCommand),
 	}
 }
 
@@ -219,7 +234,31 @@ func (rpcs *RealRaftProtobufServer) handleDestroyServer(state *raftProtocolServe
 // If the node is in higher term and its log is at least as long as the current log then vote is granted if and
 // only if the node has not already voted in this term
 func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerState, cmd *requestVoteRequest) *requestVoteReply {
-	return &requestVoteReply{}
+	remoteNodeID := cmd.GrantVoteRequest.GetSenderInfo().GetNodeId()
+	remoteTermID := cmd.GrantVoteRequest.GetSenderInfo().GetTermId()
+	remoteTailIDPb := cmd.GrantVoteRequest.GetLastEntryMetadata()
+	remoteTailID := log.EntryID{
+		TermID: remoteTailIDPb.TermId,
+		Index:  remoteTailIDPb.Index,
+	}
+
+	logrus.WithFields(logrus.Fields{
+		Component: rpcServer,
+		Event:     "RECV-REQUEST-VOTE",
+	}).Debugf("received request-vote message from (%s,%d)", remoteNodeID, remoteTermID)
+
+	voteGranted, votingErr := rpcs.Voter.DecideVote(remoteNodeID, remoteTermID, remoteTailID)
+	currentRaftState := rpcs.GetRaftState()
+	return &requestVoteReply{
+		requestVoteError: votingErr,
+		GrantVoteReply: &raftpb.GrantVoteReply{
+			SenderInfo: &raftpb.NodeInfo{
+				NodeId: currentRaftState.CurrentNodeID,
+				TermId: currentRaftState.CurrentTermID,
+			},
+			VoteGranted: voteGranted,
+		},
+	}
 }
 
 // handleAppendEntry handles append entry request from mostly cluster leader. If the operation can be performed

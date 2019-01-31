@@ -6,7 +6,9 @@ build-release:
 
 test-all:
 	go test -timeout=3s ./node/cluster
+	go test -timeout=3s ./node/election
 	go test -timeout=3s ./node/log
+	go test -timeout=3s ./node/state
 
 test:
 	go test -timeout=3s $(PACKAGE) 

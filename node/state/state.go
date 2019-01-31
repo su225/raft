@@ -403,7 +403,6 @@ func (s *RealRaftStateManager) handleRaftStateManagerRecover(state *raftStateMan
 		return nil
 	}
 	state.RaftState.RaftDurableState = *raftStateRetrieved
-	s.notifyDowngradeToFollower(state)
 	return nil
 }
 

@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
+	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/state"
@@ -88,13 +89,20 @@ type Context struct {
 
 	// Voter is responsible for deciding whether to grant or reject vote
 	*state.Voter
+
+	// LeaderElectionAlgorithm is responsible for actually executing the
+	// leader election algorithm. In case of raft it would be becoming
+	// candidate, requesting votes and upgrading to leader if necessary
+	election.LeaderElectionAlgorithm
+
+	// LeaderElectionManager is responsible for running election timeout,
+	// starting and declaring results of leader election
+	election.LeaderElectionManager
 }
 
 // NewContext creates a new node context and returns it
 // It wires up all the components before returning.
 func NewContext(config *Config) *Context {
-	realRaftProtobufServer := rpc.NewRealRaftProtobufServer(config.RPCPort)
-
 	joiner := getJoiner(config)
 	currentNodeInfo := cluster.NodeInfo{
 		ID:     config.NodeID,
@@ -126,17 +134,35 @@ func NewContext(config *Config) *Context {
 		raftStateManager,
 		writeAheadLogManager,
 	)
+	realRaftProtobufServer := rpc.NewRealRaftProtobufServer(
+		config.RPCPort,
+		voter,
+		raftStateManager,
+	)
+	leaderElectionAlgo := election.NewRaftLeaderElectionAlgorithm(
+		config.NodeID,
+		realRaftProtobufClient,
+		raftStateManager,
+		writeAheadLogManager,
+		membershipManager,
+	)
+	leaderElectionManager := election.NewRealLeaderElectionManager(
+		uint64(config.ElectionTimeoutInMillis),
+		leaderElectionAlgo,
+	)
 
 	return &Context{
-		RealRaftProtobufServer: realRaftProtobufServer,
-		RaftProtobufClient:     realRaftProtobufClient,
-		MembershipManager:      membershipManager,
-		EntryPersistence:       entryPersistence,
-		MetadataPersistence:    metadataPersistence,
-		WriteAheadLogManager:   writeAheadLogManager,
-		RaftStateManager:       raftStateManager,
-		RaftStatePersistence:   raftStatePersistence,
-		Voter:                  voter,
+		RealRaftProtobufServer:  realRaftProtobufServer,
+		RaftProtobufClient:      realRaftProtobufClient,
+		MembershipManager:       membershipManager,
+		EntryPersistence:        entryPersistence,
+		MetadataPersistence:     metadataPersistence,
+		WriteAheadLogManager:    writeAheadLogManager,
+		RaftStateManager:        raftStateManager,
+		RaftStatePersistence:    raftStatePersistence,
+		Voter:                   voter,
+		LeaderElectionAlgorithm: leaderElectionAlgo,
+		LeaderElectionManager:   leaderElectionManager,
 	}
 }
 
@@ -158,6 +184,9 @@ func (ctx *Context) Start() error {
 	if stateMgrStartErr := ctx.RaftStateManager.Start(); stateMgrStartErr != nil {
 		return stateMgrStartErr
 	}
+	if leaderElectionMgrErr := ctx.LeaderElectionManager.Start(); leaderElectionMgrErr != nil {
+		return leaderElectionMgrErr
+	}
 	return nil
 }
 
@@ -167,8 +196,11 @@ func (ctx *Context) Start() error {
 // component in the node.
 func (ctx *Context) Destroy() error {
 	contextErrorMessage := &ContextLifecycleError{Errors: []error{}}
+	if leaderElectionMgrDestroyErr := ctx.LeaderElectionManager.Destroy(); leaderElectionMgrDestroyErr != nil {
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, leaderElectionMgrDestroyErr)
+	}
 	if stateMgrDestroyErr := ctx.RaftStateManager.Destroy(); stateMgrDestroyErr != nil {
-		return stateMgrDestroyErr
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, stateMgrDestroyErr)
 	}
 	if writeAheadLogMgrDestroyErr := ctx.WriteAheadLogManager.Destroy(); writeAheadLogMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, writeAheadLogMgrDestroyErr)
