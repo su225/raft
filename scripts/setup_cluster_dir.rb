@@ -24,7 +24,7 @@ cluster_size = 3
 
 # cluster_dir specifies the root of the directory where
 # all cluster data is stored for local testing
-cluster_dir = './cluster'
+cluster_dir = './local-cluster'
 
 OptionParser.new do |opts|
     opts.banner = "Usage: setup_cluster_dir.rb [options]"

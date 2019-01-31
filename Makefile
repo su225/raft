@@ -22,4 +22,4 @@ setup-local-cluster: build
 clean:
 	rm -rf pb/raft.pb.go
 	rm -rf raft
-	rm -rf cluster
+	rm -rf local-cluster
