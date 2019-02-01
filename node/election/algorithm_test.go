@@ -3,10 +3,8 @@ package election
 import (
 	"testing"
 
-	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/mock"
-	"github.com/su225/raft/node/state"
 )
 
 func TestRaftLeaderElectionAlgorithmReturnsTrueWhenItGetsMajorityVotesAndBecomesLeader(t *testing.T) {
@@ -16,13 +14,13 @@ func TestRaftLeaderElectionAlgorithmReturnsTrueWhenItGetsMajorityVotesAndBecomes
 		mock.SampleNodeID1,
 		mock.SampleNodeID2,
 	})
-	mockStateManager := getDefaultMockRaftStateManager(currentNodeID, true)
+	mockStateManager := mock.GetDefaultMockRaftStateManager(currentNodeID, true)
 	electionAlgorithm := NewRaftLeaderElectionAlgorithm(
 		currentNodeID,
 		mockClient,
 		mockStateManager,
-		getDefaultMockWriteAheadLogManager(true),
-		getDefaultMockMembershipManager(currentNodeID),
+		mock.GetDefaultMockWriteAheadLogManager(true),
+		mock.GetDefaultMockMembershipManager(currentNodeID),
 	)
 	votedAsLeader, _ := electionAlgorithm.ConductElection()
 	if !votedAsLeader {
@@ -37,13 +35,13 @@ func TestRaftLeaderElectionAlgorithmReturnsTrueWhenItGetsMajorityVotesAndBecomes
 func TestRaftLeaderElectionAlgorithmReturnsFalseWhenItDoesNotGetMajorityAndDoesNotBecomeLeader(t *testing.T) {
 	currentNodeID := mock.SampleNodeID0
 	mockClient := newMockVoteRequesterClient([]string{currentNodeID})
-	mockStateManager := getDefaultMockRaftStateManager(currentNodeID, true)
+	mockStateManager := mock.GetDefaultMockRaftStateManager(currentNodeID, true)
 	electionAlgorithm := NewRaftLeaderElectionAlgorithm(
 		currentNodeID,
 		mockClient,
 		mockStateManager,
-		getDefaultMockWriteAheadLogManager(true),
-		getDefaultMockMembershipManager(currentNodeID),
+		mock.GetDefaultMockWriteAheadLogManager(true),
+		mock.GetDefaultMockMembershipManager(currentNodeID),
 	)
 	votedAsLeader, _ := electionAlgorithm.ConductElection()
 	if votedAsLeader {
@@ -53,44 +51,6 @@ func TestRaftLeaderElectionAlgorithmReturnsFalseWhenItDoesNotGetMajorityAndDoesN
 		mockStateManager.UpgradeToLeaderCount > 0 {
 		t.FailNow()
 	}
-}
-
-func getDefaultMockRaftStateManager(nodeID string, succeeds bool) *state.MockRaftStateManager {
-	return state.NewMockRaftStateManager(succeeds, state.RaftState{
-		RaftDurableState: state.RaftDurableState{
-			CurrentNodeID: nodeID,
-			CurrentTermID: 2,
-			VotedFor:      mock.SampleNodeID1,
-		},
-		CurrentRole:   state.RoleFollower,
-		CurrentLeader: mock.SampleNodeID2,
-	})
-}
-
-func getDefaultMockWriteAheadLogManager(succeeds bool) *log.MockWriteAheadLogManager {
-	return log.NewMockWriteAheadLogManager(succeeds,
-		log.WriteAheadLogMetadata{
-			TailEntryID: log.EntryID{
-				TermID: 2,
-				Index:  3,
-			},
-			MaxCommittedIndex: 2,
-		},
-		map[uint64]log.Entry{
-			0: &log.SentinelEntry{},
-			1: &log.UpsertEntry{TermID: 1, Key: "a", Value: "1"},
-			2: &log.UpsertEntry{TermID: 2, Key: "b", Value: "2"},
-			3: &log.DeleteEntry{TermID: 2, Key: "a"},
-		},
-	)
-}
-
-func getDefaultMockMembershipManager(currentNodeID string) *cluster.MockMembershipManager {
-	return cluster.NewMockMembershipManager([]cluster.NodeInfo{
-		cluster.NodeInfo{ID: currentNodeID},
-		cluster.NodeInfo{ID: mock.SampleNodeID1},
-		cluster.NodeInfo{ID: mock.SampleNodeID2},
-	})
 }
 
 // mockVoteRequesterClient represents the mocked RPC Client
