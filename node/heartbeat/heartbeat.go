@@ -95,9 +95,7 @@ func NewRealLeaderHeartbeatController(
 func (h *RealLeaderHeartbeatController) Start() error {
 	go h.commandServer()
 	go h.listener()
-	errorChannel := make(chan error)
-	h.commandChannel <- &heartbeatControllerStart{errorChannel: errorChannel}
-	return <-errorChannel
+	return nil
 }
 
 // Destroy destroys the leader election controller. It makes the component
@@ -220,7 +218,6 @@ type heartbeatControllerState struct {
 // lot of synchronization overhead since state is local and this one is single-threaded
 func (h *RealLeaderHeartbeatController) commandServer() {
 	state := &heartbeatControllerState{
-		isStarted:   false,
 		isDestroyed: false,
 		isPaused:    true,
 	}
@@ -229,8 +226,6 @@ func (h *RealLeaderHeartbeatController) commandServer() {
 		select {
 		case cmd := <-h.commandChannel:
 			switch c := cmd.(type) {
-			case *heartbeatControllerStart:
-				c.errorChannel <- h.handleHeartbeatControllerStart(state, c)
 			case *heartbeatControllerDestroy:
 				c.errorChannel <- h.handleHeartbeatControllerDestroy(state, c)
 			case *heartbeatControllerPause:
@@ -246,46 +241,19 @@ func (h *RealLeaderHeartbeatController) commandServer() {
 	}
 }
 
-func (h *RealLeaderHeartbeatController) handleHeartbeatControllerStart(state *heartbeatControllerState, cmd *heartbeatControllerStart) error {
-	if state.isDestroyed {
-		return heartbeatControllerIsDestroyedError
-	}
-	if state.isStarted {
-		return nil
-	}
-	state.isStarted = true
-	return nil
-}
-
 func (h *RealLeaderHeartbeatController) handleHeartbeatControllerDestroy(state *heartbeatControllerState, cmd *heartbeatControllerDestroy) error {
-	if state.isDestroyed {
-		return nil
-	}
-	state.isDestroyed = true
 	return nil
 }
 
 func (h *RealLeaderHeartbeatController) handleHeartbeatControllerPause(state *heartbeatControllerState, cmd *heartbeatControllerPause) error {
-	if statusErr := h.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	state.isPaused = true
 	return nil
 }
 
 func (h *RealLeaderHeartbeatController) handleHeartbeatControllerResume(state *heartbeatControllerState, cmd *heartbeatControllerResume) error {
-	if statusErr := h.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	state.isPaused = false
 	return nil
 }
 
 func (h *RealLeaderHeartbeatController) handleTimeout(state *heartbeatControllerState) error {
-	if statusErr := h.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	go h.SendHeartbeat()
 	return nil
 }
 
@@ -294,7 +262,6 @@ func (h *RealLeaderHeartbeatController) handleTimeout(state *heartbeatController
 // then it pauses heartbeat controller.
 func (h *RealLeaderHeartbeatController) listener() {
 	listenerState := &heartbeatControllerState{
-		isStarted:   true,
 		isDestroyed: false,
 		isPaused:    false,
 	}
@@ -318,49 +285,17 @@ func (h *RealLeaderHeartbeatController) NotifyChannel() chan<- state.RaftStateMa
 }
 
 func (h *RealLeaderHeartbeatController) onUpgradeToLeader(listenerState *heartbeatControllerState, ev *state.UpgradeToLeaderEvent) error {
-	if statusErr := h.checkOperationalStatus(listenerState); statusErr != nil {
-		return statusErr
-	}
-	if opErr := h.Resume(); opErr != nil {
-		return opErr
-	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: heartbeatController,
-		logfield.Event:     "RESUME-HEARTBEAT",
-	}).Debugf("now leader - start heartbeating for term %d", ev.TermID)
 	return nil
 }
 
 func (h *RealLeaderHeartbeatController) onBecomeCandidate(listenerState *heartbeatControllerState, ev *state.BecomeCandidateEvent) error {
-	if err := h.tryPauseHeartbeat(listenerState); err != nil {
-		return err
-	}
 	return nil
 }
 
 func (h *RealLeaderHeartbeatController) onDowngradeToFollower(listenerState *heartbeatControllerState, ev *state.DowngradeToFollowerEvent) error {
-	if err := h.tryPauseHeartbeat(listenerState); err != nil {
-		return err
-	}
 	return nil
 }
 
 func (h *RealLeaderHeartbeatController) tryPauseHeartbeat(listenerState *heartbeatControllerState) error {
-	if statusErr := h.checkOperationalStatus(listenerState); statusErr != nil {
-		return statusErr
-	}
-	if opErr := h.Pause(); opErr != nil {
-		return opErr
-	}
-	return nil
-}
-
-func (h *RealLeaderHeartbeatController) checkOperationalStatus(state *heartbeatControllerState) error {
-	if state.isDestroyed {
-		return heartbeatControllerIsDestroyedError
-	}
-	if !state.isStarted {
-		return heartbeatControllerNotStartedError
-	}
 	return nil
 }

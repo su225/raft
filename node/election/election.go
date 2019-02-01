@@ -3,8 +3,6 @@ package election
 import (
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/common"
 	"github.com/su225/raft/node/state"
 )
@@ -136,61 +134,27 @@ func (e *RealLeaderElectionManager) commandServer() {
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerStart(state *leaderElectionManagerState, cmd *leaderElectionManagerStart) error {
-	if state.isDestroyed {
-		return electionMgrIsDestroyedErr
-	}
-	state.isStarted = true
-	state.isPaused = false
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerDestroy(state *leaderElectionManagerState, cmd *leaderElectionManagerDestroy) error {
-	if state.isDestroyed {
-		return nil
-	}
-	state.isDestroyed = true
-	state.isPaused = true
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerPause(state *leaderElectionManagerState, cmd *leaderElectionManagerPause) error {
-	if statusErr := e.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	if !state.isPaused {
-		logrus.WithFields(logrus.Fields{
-			logfield.Component: leaderElectionMgr,
-			logfield.Event:     "PAUSE",
-		}).Debugf("pause election timeout")
-	}
-	state.isPaused = true
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerResume(state *leaderElectionManagerState, cmd *leaderElectionManagerResume) error {
-	if statusErr := e.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	if state.isPaused {
-		logrus.WithFields(logrus.Fields{
-			logfield.Component: leaderElectionMgr,
-			logfield.Event:     "RESUME",
-		}).Debugf("resume election timeout")
-	}
-	state.isPaused = false
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerReset(state *leaderElectionManagerState, cmd *leaderElectionManagerReset) error {
-	return e.checkOperationalStatus(state)
+	return nil
 }
 
 func (e *RealLeaderElectionManager) handleTimeout(state *leaderElectionManagerState) error {
-	if statusErr := e.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	_, electionErr := e.LeaderElectionAlgorithm.ConductElection()
-	return electionErr
+	return nil
 }
 
 func (e *RealLeaderElectionManager) roleChangeListener() {
@@ -217,37 +181,14 @@ func (e *RealLeaderElectionManager) NotifyChannel() chan<- state.RaftStateManage
 	return e.listenerChannel
 }
 
-func (e *RealLeaderElectionManager) onUpgradeToLeader(listenerState *leaderElectionManagerState, event *state.UpgradeToLeaderEvent) error {
-	if statusErr := e.checkOperationalStatus(listenerState); statusErr != nil {
-		return statusErr
-	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: leaderElectionMgr,
-		logfield.Event:     "UPGRADE-TO-LEADER",
-	}).Debugf("stopping election timeout for term %d", event.TermID)
-	return e.Pause()
+func (e *RealLeaderElectionManager) onUpgradeToLeader(listenerState *leaderElectionManagerState, ev *state.UpgradeToLeaderEvent) error {
+	return nil
 }
 
-func (e *RealLeaderElectionManager) onBecomeCandidate(listenerState *leaderElectionManagerState, event *state.BecomeCandidateEvent) error {
-	if statusErr := e.checkOperationalStatus(listenerState); statusErr != nil {
-		return statusErr
-	}
-	return e.Start()
+func (e *RealLeaderElectionManager) onBecomeCandidate(listenerState *leaderElectionManagerState, ev *state.BecomeCandidateEvent) error {
+	return nil
 }
 
-func (e *RealLeaderElectionManager) onDowngradeToFollower(listenerState *leaderElectionManagerState, event *state.DowngradeToFollowerEvent) error {
-	if statusErr := e.checkOperationalStatus(listenerState); statusErr != nil {
-		return statusErr
-	}
-	return e.Start()
-}
-
-func (e *RealLeaderElectionManager) checkOperationalStatus(state *leaderElectionManagerState) error {
-	if state.isDestroyed {
-		return electionMgrIsDestroyedErr
-	}
-	if !state.isStarted {
-		return electionMgrNotStartedErr
-	}
+func (e *RealLeaderElectionManager) onDowngradeToFollower(listenerState *leaderElectionManagerState, ev *state.DowngradeToFollowerEvent) error {
 	return nil
 }
