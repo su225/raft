@@ -254,6 +254,10 @@ func (rpcc *RealRaftProtobufClient) handleDestroyClient(state *raftProtocolClien
 	if state.ClientConn != nil {
 		return state.ClientConn.Close()
 	}
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: rpcc,
+		logfield.Event:     "DESTROY",
+	}).Infof("destroyed RPC client for %s", state.remoteNodeInfo.ID)
 	return nil
 }
 

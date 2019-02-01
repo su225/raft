@@ -164,6 +164,12 @@ func (e *RealLeaderElectionManager) handleLeaderElectionManagerDestroy(state *le
 	if state.isDestroyed {
 		return nil
 	}
+	e.stopElectionTimer(state.cmdChan)
+	state.isDestroyed = true
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: leaderElectionMgr,
+		logfield.Event:     "DESTROY",
+	}).Infof("destroyed election manager")
 	return nil
 }
 

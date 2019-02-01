@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"github.com/sirupsen/logrus"
+	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/common"
 )
 
@@ -198,6 +200,10 @@ func (m *RealMembershipManager) handleDestroyMembershipManager(state *membership
 	}
 	state.nodeTable = nil
 	state.isDestroyed = true
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: membershipManager,
+		logfield.Event:     "DESTROY",
+	}).Infof("destroyed membership manager")
 	return nil
 }
 

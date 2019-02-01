@@ -261,6 +261,10 @@ func (h *RealLeaderHeartbeatController) handleHeartbeatControllerDestroy(state *
 	h.stopHeartbeatTimer(state.timerCmdChan)
 	state.isDestroyed = true
 	state.isPaused = true
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: heartbeatController,
+		logfield.Event:     "DESTROY",
+	}).Infof("destroyed heartbeat controller")
 	return nil
 }
 
