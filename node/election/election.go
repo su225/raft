@@ -3,6 +3,8 @@ package election
 import (
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/common"
 	"github.com/su225/raft/node/state"
 )
@@ -24,7 +26,6 @@ type LeaderElectionManager interface {
 }
 
 var leaderElectionMgr = "ELECTION-MGR"
-var electionMgrNotStartedErr = &common.ComponentHasNotStartedError{ComponentName: leaderElectionMgr}
 var electionMgrIsDestroyedErr = &common.ComponentIsDestroyedError{ComponentName: leaderElectionMgr}
 
 // RealLeaderElectionManager is the implementation of leader election
@@ -62,9 +63,7 @@ func NewRealLeaderElectionManager(
 func (e *RealLeaderElectionManager) Start() error {
 	go e.commandServer()
 	go e.roleChangeListener()
-	errorChan := make(chan error)
-	e.commandChannel <- &leaderElectionManagerStart{errorChan: errorChan}
-	return <-errorChan
+	return nil
 }
 
 // Destroy makes the component non-functional. It destroys both the
@@ -99,67 +98,109 @@ func (e *RealLeaderElectionManager) ResetTimeout() error {
 	return <-errorChan
 }
 
+type electionTimerCommand int8
+
+const (
+	stopTimeout electionTimerCommand = iota
+	resetTimeout
+)
+
 type leaderElectionManagerState struct {
-	isStarted, isDestroyed, isPaused bool
+	isDestroyed bool
+	isPaused    bool
+	cmdChan     chan electionTimerCommand
 }
 
 func (e *RealLeaderElectionManager) commandServer() {
 	state := &leaderElectionManagerState{
-		isStarted:   true,
 		isDestroyed: false,
 		isPaused:    false,
+		cmdChan:     make(chan electionTimerCommand),
 	}
-	timeout := time.Duration(e.ElectionTimeoutInMillis) * time.Millisecond
 	for {
-		select {
-		case cmd := <-e.commandChannel:
-			switch c := cmd.(type) {
-			case *leaderElectionManagerStart:
-				c.errorChan <- e.handleLeaderElectionManagerStart(state, c)
-			case *leaderElectionManagerDestroy:
-				c.errorChan <- e.handleLeaderElectionManagerDestroy(state, c)
-			case *leaderElectionManagerPause:
-				c.errorChan <- e.handleLeaderElectionManagerPause(state, c)
-			case *leaderElectionManagerResume:
-				c.errorChan <- e.handleLeaderElectionManagerResume(state, c)
-			case *leaderElectionManagerReset:
-				c.errorChan <- e.handleLeaderElectionManagerReset(state, c)
-			}
-		case <-time.After(timeout):
-			if !state.isPaused {
-				e.handleTimeout(state)
-			}
+		cmd := <-e.commandChannel
+		switch c := cmd.(type) {
+		case *leaderElectionManagerDestroy:
+			c.errorChan <- e.handleLeaderElectionManagerDestroy(state, c)
+		case *leaderElectionManagerPause:
+			c.errorChan <- e.handleLeaderElectionManagerPause(state, c)
+		case *leaderElectionManagerResume:
+			c.errorChan <- e.handleLeaderElectionManagerResume(state, c)
+		case *leaderElectionManagerReset:
+			c.errorChan <- e.handleLeaderElectionManagerReset(state, c)
 		}
 	}
 }
 
-func (e *RealLeaderElectionManager) handleLeaderElectionManagerStart(state *leaderElectionManagerState, cmd *leaderElectionManagerStart) error {
-	return nil
+func (e *RealLeaderElectionManager) startElectionTimer(cmdChan <-chan electionTimerCommand) {
+	go func() {
+		stopTimer := false
+		timeout := time.Duration(e.ElectionTimeoutInMillis) * time.Millisecond
+		for !stopTimer {
+			select {
+			case c := <-cmdChan:
+				switch c {
+				case stopTimeout:
+					stopTimer = true
+				case resetTimeout:
+					// Do-nothing.
+				}
+			case <-time.After(timeout):
+				go e.LeaderElectionAlgorithm.ConductElection()
+			}
+		}
+	}()
+}
+
+func (e *RealLeaderElectionManager) stopElectionTimer(cmdChan chan<- electionTimerCommand) {
+	cmdChan <- stopTimeout
+}
+
+func (e *RealLeaderElectionManager) resetElectionTimer(cmdChan chan<- electionTimerCommand) {
+	cmdChan <- resetTimeout
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerDestroy(state *leaderElectionManagerState, cmd *leaderElectionManagerDestroy) error {
+	if state.isDestroyed {
+		return nil
+	}
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerPause(state *leaderElectionManagerState, cmd *leaderElectionManagerPause) error {
+	if state.isDestroyed {
+		return electionMgrIsDestroyedErr
+	}
+	if !state.isPaused {
+		e.stopElectionTimer(state.cmdChan)
+		state.isPaused = true
+	}
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerResume(state *leaderElectionManagerState, cmd *leaderElectionManagerResume) error {
+	if state.isDestroyed {
+		return electionMgrIsDestroyedErr
+	}
+	if state.isPaused {
+		e.startElectionTimer(state.cmdChan)
+		state.isPaused = false
+	}
 	return nil
 }
 
 func (e *RealLeaderElectionManager) handleLeaderElectionManagerReset(state *leaderElectionManagerState, cmd *leaderElectionManagerReset) error {
-	return nil
-}
-
-func (e *RealLeaderElectionManager) handleTimeout(state *leaderElectionManagerState) error {
+	if state.isDestroyed {
+		return electionMgrIsDestroyedErr
+	}
+	if !state.isPaused {
+		e.resetElectionTimer(state.cmdChan)
+	}
 	return nil
 }
 
 func (e *RealLeaderElectionManager) roleChangeListener() {
 	listenerState := &leaderElectionManagerState{
-		isStarted:   true,
 		isDestroyed: false,
 		isPaused:    false,
 	}
@@ -182,13 +223,17 @@ func (e *RealLeaderElectionManager) NotifyChannel() chan<- state.RaftStateManage
 }
 
 func (e *RealLeaderElectionManager) onUpgradeToLeader(listenerState *leaderElectionManagerState, ev *state.UpgradeToLeaderEvent) error {
-	return nil
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: leaderElectionMgr,
+		logfield.Event:     "UPGRADE-TO-LEADER",
+	}).Debugf("Leader now - stop election timer")
+	return e.Pause()
 }
 
 func (e *RealLeaderElectionManager) onBecomeCandidate(listenerState *leaderElectionManagerState, ev *state.BecomeCandidateEvent) error {
-	return nil
+	return e.Resume()
 }
 
 func (e *RealLeaderElectionManager) onDowngradeToFollower(listenerState *leaderElectionManagerState, ev *state.DowngradeToFollowerEvent) error {
-	return nil
+	return e.Resume()
 }

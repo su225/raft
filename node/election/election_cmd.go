@@ -3,12 +3,6 @@ package election
 type leaderElectionManagerCommand interface {
 	isLeaderElectionManagerCommand() bool
 }
-
-type leaderElectionManagerStart struct {
-	leaderElectionManagerCommand
-	errorChan chan error
-}
-
 type leaderElectionManagerDestroy struct {
 	leaderElectionManagerCommand
 	errorChan chan error
