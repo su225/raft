@@ -393,6 +393,9 @@ func (s *RealRaftStateManager) handleRaftStateManagerRecover(state *raftStateMan
 	if state.isDestroyed {
 		return raftStateManagerIsDestroyedError
 	}
+	// This is needed to notify the listeners that
+	// this node is starting from follower (election
+	// manager and heartbeat controllers need this)
 	defer func() {
 		state.RaftState.CurrentRole = RoleFollower
 		state.RaftState.CurrentLeader = ""
