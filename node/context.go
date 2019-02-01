@@ -28,6 +28,7 @@ import (
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/election"
+	"github.com/su225/raft/node/heartbeat"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/state"
@@ -98,6 +99,10 @@ type Context struct {
 	// LeaderElectionManager is responsible for running election timeout,
 	// starting and declaring results of leader election
 	election.LeaderElectionManager
+
+	// LeaderHeartbeatController is responsible for controlling the sending
+	// of heartbeat to remote nodes to establish authority as leader
+	heartbeat.LeaderHeartbeatController
 }
 
 // NewContext creates a new node context and returns it
@@ -150,19 +155,30 @@ func NewContext(config *Config) *Context {
 		uint64(config.ElectionTimeoutInMillis),
 		leaderElectionAlgo,
 	)
+	leaderHeartbeatController := heartbeat.NewRealLeaderHeartbeatController(
+		config.NodeID,
+		config.HeartbeatIntervalInMillis,
+		realRaftProtobufClient,
+		raftStateManager,
+		writeAheadLogManager,
+		membershipManager,
+	)
+	raftStateManager.RegisterSubscription(leaderElectionManager)
+	raftStateManager.RegisterSubscription(leaderHeartbeatController)
 
 	return &Context{
-		RealRaftProtobufServer:  realRaftProtobufServer,
-		RaftProtobufClient:      realRaftProtobufClient,
-		MembershipManager:       membershipManager,
-		EntryPersistence:        entryPersistence,
-		MetadataPersistence:     metadataPersistence,
-		WriteAheadLogManager:    writeAheadLogManager,
-		RaftStateManager:        raftStateManager,
-		RaftStatePersistence:    raftStatePersistence,
-		Voter:                   voter,
-		LeaderElectionAlgorithm: leaderElectionAlgo,
-		LeaderElectionManager:   leaderElectionManager,
+		RealRaftProtobufServer:    realRaftProtobufServer,
+		RaftProtobufClient:        realRaftProtobufClient,
+		MembershipManager:         membershipManager,
+		EntryPersistence:          entryPersistence,
+		MetadataPersistence:       metadataPersistence,
+		WriteAheadLogManager:      writeAheadLogManager,
+		RaftStateManager:          raftStateManager,
+		RaftStatePersistence:      raftStatePersistence,
+		Voter:                     voter,
+		LeaderElectionAlgorithm:   leaderElectionAlgo,
+		LeaderElectionManager:     leaderElectionManager,
+		LeaderHeartbeatController: leaderHeartbeatController,
 	}
 }
 
@@ -187,6 +203,9 @@ func (ctx *Context) Start() error {
 	if leaderElectionMgrErr := ctx.LeaderElectionManager.Start(); leaderElectionMgrErr != nil {
 		return leaderElectionMgrErr
 	}
+	if heartbeatCtrlErr := ctx.LeaderHeartbeatController.Start(); heartbeatCtrlErr != nil {
+		return heartbeatCtrlErr
+	}
 	return nil
 }
 
@@ -196,6 +215,9 @@ func (ctx *Context) Start() error {
 // component in the node.
 func (ctx *Context) Destroy() error {
 	contextErrorMessage := &ContextLifecycleError{Errors: []error{}}
+	if heartbeatDestroyErr := ctx.LeaderHeartbeatController.Destroy(); heartbeatDestroyErr != nil {
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, heartbeatDestroyErr)
+	}
 	if leaderElectionMgrDestroyErr := ctx.LeaderElectionManager.Destroy(); leaderElectionMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, leaderElectionMgrDestroyErr)
 	}
