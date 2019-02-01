@@ -393,6 +393,11 @@ func (s *RealRaftStateManager) handleRaftStateManagerRecover(state *raftStateMan
 	if state.isDestroyed {
 		return raftStateManagerIsDestroyedError
 	}
+	defer func() {
+		state.RaftState.CurrentRole = RoleFollower
+		state.RaftState.CurrentLeader = ""
+		s.notifyDowngradeToFollower(state)
+	}()
 	raftStateRetrieved, retrieveErr := s.RaftStatePersistence.RetrieveRaftState()
 	if retrieveErr != nil {
 		logrus.WithFields(logrus.Fields{

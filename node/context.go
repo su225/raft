@@ -196,14 +196,14 @@ func (ctx *Context) Start() error {
 	if writeAheadLogMgrStartErr := ctx.WriteAheadLogManager.Start(); writeAheadLogMgrStartErr != nil {
 		return writeAheadLogMgrStartErr
 	}
-	if stateMgrStartErr := ctx.RaftStateManager.Start(); stateMgrStartErr != nil {
-		return stateMgrStartErr
-	}
 	if leaderElectionMgrErr := ctx.LeaderElectionManager.Start(); leaderElectionMgrErr != nil {
 		return leaderElectionMgrErr
 	}
 	if heartbeatCtrlErr := ctx.LeaderHeartbeatController.Start(); heartbeatCtrlErr != nil {
 		return heartbeatCtrlErr
+	}
+	if stateMgrStartErr := ctx.RaftStateManager.Start(); stateMgrStartErr != nil {
+		return stateMgrStartErr
 	}
 	if probufStartErr := ctx.RealRaftProtobufServer.Start(); probufStartErr != nil {
 		return probufStartErr

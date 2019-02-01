@@ -114,7 +114,7 @@ type leaderElectionManagerState struct {
 func (e *RealLeaderElectionManager) commandServer() {
 	state := &leaderElectionManagerState{
 		isDestroyed: false,
-		isPaused:    false,
+		isPaused:    true,
 		cmdChan:     make(chan electionTimerCommand),
 	}
 	for {
@@ -164,7 +164,10 @@ func (e *RealLeaderElectionManager) handleLeaderElectionManagerDestroy(state *le
 	if state.isDestroyed {
 		return nil
 	}
-	e.stopElectionTimer(state.cmdChan)
+	if !state.isPaused {
+		e.stopElectionTimer(state.cmdChan)
+		state.isPaused = true
+	}
 	state.isDestroyed = true
 	logrus.WithFields(logrus.Fields{
 		logfield.Component: leaderElectionMgr,
