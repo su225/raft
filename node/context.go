@@ -31,6 +31,7 @@ import (
 	"github.com/su225/raft/node/heartbeat"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/rpc"
+	"github.com/su225/raft/node/rpc/server"
 	"github.com/su225/raft/node/state"
 )
 
@@ -57,7 +58,7 @@ type Context struct {
 	// RealRaftProbufServer is an implementation of RaftProtocolServer
 	// It is responsible for receiving all incoming protocol-related
 	// messages from other nodes and taking appropriate action
-	*rpc.RealRaftProtobufServer
+	*server.RealRaftProtobufServer
 
 	// RealRaftProtobufClient is responsible for handling all outgoing
 	// communication from this node
@@ -139,11 +140,6 @@ func NewContext(config *Config) *Context {
 		raftStateManager,
 		writeAheadLogManager,
 	)
-	realRaftProtobufServer := rpc.NewRealRaftProtobufServer(
-		config.RPCPort,
-		voter,
-		raftStateManager,
-	)
 	leaderElectionAlgo := election.NewRaftLeaderElectionAlgorithm(
 		config.NodeID,
 		realRaftProtobufClient,
@@ -154,6 +150,12 @@ func NewContext(config *Config) *Context {
 	leaderElectionManager := election.NewRealLeaderElectionManager(
 		uint64(config.ElectionTimeoutInMillis),
 		leaderElectionAlgo,
+	)
+	realRaftProtobufServer := server.NewRealRaftProtobufServer(
+		config.RPCPort,
+		voter,
+		raftStateManager,
+		leaderElectionManager,
 	)
 	leaderHeartbeatController := heartbeat.NewRealLeaderHeartbeatController(
 		config.NodeID,
@@ -185,9 +187,6 @@ func NewContext(config *Config) *Context {
 // Start starts various node context components. If the
 // operation is not successful then it returns error
 func (ctx *Context) Start() error {
-	if probufStartErr := ctx.RealRaftProtobufServer.Start(); probufStartErr != nil {
-		return probufStartErr
-	}
 	if membershipMgrStartErr := ctx.MembershipManager.Start(); membershipMgrStartErr != nil {
 		return membershipMgrStartErr
 	}
@@ -206,6 +205,9 @@ func (ctx *Context) Start() error {
 	if heartbeatCtrlErr := ctx.LeaderHeartbeatController.Start(); heartbeatCtrlErr != nil {
 		return heartbeatCtrlErr
 	}
+	if probufStartErr := ctx.RealRaftProtobufServer.Start(); probufStartErr != nil {
+		return probufStartErr
+	}
 	return nil
 }
 
@@ -215,6 +217,9 @@ func (ctx *Context) Start() error {
 // component in the node.
 func (ctx *Context) Destroy() error {
 	contextErrorMessage := &ContextLifecycleError{Errors: []error{}}
+	if protobufDestroyErr := ctx.RealRaftProtobufServer.Destroy(); protobufDestroyErr != nil {
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, protobufDestroyErr)
+	}
 	if heartbeatDestroyErr := ctx.LeaderHeartbeatController.Destroy(); heartbeatDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, heartbeatDestroyErr)
 	}
@@ -232,9 +237,6 @@ func (ctx *Context) Destroy() error {
 	}
 	if membershipMgrDestroyErr := ctx.MembershipManager.Destroy(); membershipMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, membershipMgrDestroyErr)
-	}
-	if protobufDestroyErr := ctx.RealRaftProtobufServer.Destroy(); protobufDestroyErr != nil {
-		contextErrorMessage.Errors = append(contextErrorMessage.Errors, protobufDestroyErr)
 	}
 	logrus.WithFields(logrus.Fields{
 		logfield.ErrorReason: contextErrorMessage.Error(),

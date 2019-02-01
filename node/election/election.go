@@ -107,16 +107,12 @@ type leaderElectionManagerState struct {
 
 func (e *RealLeaderElectionManager) commandServer() {
 	state := &leaderElectionManagerState{
-		isStarted:   false,
+		isStarted:   true,
 		isDestroyed: false,
 		isPaused:    false,
 	}
 	timeout := time.Duration(e.ElectionTimeoutInMillis) * time.Millisecond
 	for {
-		var timeoutChannel <-chan time.Time
-		if state.isStarted && !state.isPaused && !state.isDestroyed {
-			timeoutChannel = time.After(timeout)
-		}
 		select {
 		case cmd := <-e.commandChannel:
 			switch c := cmd.(type) {
@@ -131,8 +127,10 @@ func (e *RealLeaderElectionManager) commandServer() {
 			case *leaderElectionManagerReset:
 				c.errorChan <- e.handleLeaderElectionManagerReset(state, c)
 			}
-		case <-timeoutChannel:
-			e.handleTimeout(state)
+		case <-time.After(timeout):
+			if !state.isPaused {
+				e.handleTimeout(state)
+			}
 		}
 	}
 }
@@ -197,7 +195,7 @@ func (e *RealLeaderElectionManager) handleTimeout(state *leaderElectionManagerSt
 
 func (e *RealLeaderElectionManager) roleChangeListener() {
 	listenerState := &leaderElectionManagerState{
-		isStarted:   false,
+		isStarted:   true,
 		isDestroyed: false,
 		isPaused:    false,
 	}
@@ -234,10 +232,6 @@ func (e *RealLeaderElectionManager) onBecomeCandidate(listenerState *leaderElect
 	if statusErr := e.checkOperationalStatus(listenerState); statusErr != nil {
 		return statusErr
 	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: leaderElectionMgr,
-		logfield.Event:     "BECOME-CANDIDATE",
-	}).Debugf("contesting for election for term %d", event.TermID)
 	return e.Start()
 }
 
@@ -245,10 +239,6 @@ func (e *RealLeaderElectionManager) onDowngradeToFollower(listenerState *leaderE
 	if statusErr := e.checkOperationalStatus(listenerState); statusErr != nil {
 		return statusErr
 	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: leaderElectionMgr,
-		logfield.Event:     "DOWNGRADE-TO-FOLLOWER",
-	}).Debugf("start election timeout for term %d", event.TermID)
 	return e.Start()
 }
 

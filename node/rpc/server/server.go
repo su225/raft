@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package rpc
+package server
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 	. "github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/common"
+	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/state"
 	"github.com/su225/raft/pb"
@@ -55,6 +56,9 @@ type RealRaftProtobufServer struct {
 	// RaftStateManager is responsible for managing state related to raft
 	state.RaftStateManager
 
+	// LeaderElectionManager is needed to reset the election timeout
+	election.LeaderElectionManager
+
 	// commandChannel is used to provide various commands. This
 	// is where operations actually happen
 	commandChannel chan protocolServerCommand
@@ -70,12 +74,14 @@ func NewRealRaftProtobufServer(
 	rpcPort uint32,
 	voter *state.Voter,
 	raftStateMgr state.RaftStateManager,
+	electionMgr election.LeaderElectionManager,
 ) *RealRaftProtobufServer {
 	return &RealRaftProtobufServer{
-		RPCPort:          rpcPort,
-		Voter:            voter,
-		RaftStateManager: raftStateMgr,
-		commandChannel:   make(chan protocolServerCommand),
+		RPCPort:               rpcPort,
+		Voter:                 voter,
+		RaftStateManager:      raftStateMgr,
+		LeaderElectionManager: electionMgr,
+		commandChannel:        make(chan protocolServerCommand),
 	}
 }
 
@@ -249,6 +255,7 @@ func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerS
 
 	voteGranted, votingErr := rpcs.Voter.DecideVote(remoteNodeID, remoteTermID, remoteTailID)
 	currentRaftState := rpcs.GetRaftState()
+	rpcs.LeaderElectionManager.ResetTimeout()
 	return &requestVoteReply{
 		requestVoteError: votingErr,
 		GrantVoteReply: &raftpb.GrantVoteReply{
@@ -275,6 +282,48 @@ func (rpcs *RealRaftProtobufServer) handleAppendEntry(state *raftProtocolServerS
 // it should not accept it as the leader. If the remote node has the same term as the current node and the node
 // is a candidate or a follower without a leader then leader is updated. This operation might update the maximum
 // committed index in the write-ahead log if this node accepts the remote as leader.
-func (rpcs *RealRaftProtobufServer) handleHeartbeat(state *raftProtocolServerState, cmd *heartbeatRequest) *heartbeatReply {
-	return &heartbeatReply{}
+func (rpcs *RealRaftProtobufServer) handleHeartbeat(serverState *raftProtocolServerState, cmd *heartbeatRequest) *heartbeatReply {
+	remoteNodeID := cmd.HeartbeatRequest.GetSenderInfo().GetNodeId()
+	remoteTermID := cmd.HeartbeatRequest.GetSenderInfo().GetTermId()
+	currentRaftState := rpcs.RaftStateManager.GetRaftState()
+	reply := &heartbeatReply{
+		heartbeatError: nil,
+		HeartbeatReply: &raftpb.HeartbeatReply{
+			SenderInfo: &raftpb.NodeInfo{
+				NodeId: currentRaftState.CurrentNodeID,
+				TermId: currentRaftState.CurrentTermID,
+			},
+			AcceptAsLeader: true,
+		},
+	}
+	if currentRaftState.CurrentTermID > remoteTermID {
+		reply.HeartbeatReply.AcceptAsLeader = false
+		return reply
+	}
+
+	// Try to accept authority of the remote node as leader.
+	// If there is an issue then complain and reject authority
+	if (currentRaftState.CurrentRole != state.RoleLeader && currentRaftState.CurrentTermID == remoteTermID) ||
+		(currentRaftState.CurrentTermID < remoteTermID) {
+		if opErr := rpcs.RaftStateManager.DowngradeToFollower(remoteNodeID, remoteTermID); opErr != nil {
+			logrus.WithFields(logrus.Fields{
+				ErrorReason: opErr.Error(),
+				Component:   rpcServer,
+				Event:       "DOWNGRADE-TO-FOLLOWER",
+			}).Errorf("error while trying to step down as follower")
+			reply.heartbeatError = opErr
+			reply.AcceptAsLeader = false
+			return reply
+		}
+	}
+	if resetErr := rpcs.LeaderElectionManager.ResetTimeout(); resetErr != nil {
+		logrus.WithFields(logrus.Fields{
+			ErrorReason: resetErr.Error(),
+			Component:   rpcServer,
+			Event:       "RESET-TIMEOUT",
+		}).Errorf("error while election timeout reset")
+		reply.heartbeatError = resetErr
+		return reply
+	}
+	return reply
 }

@@ -224,11 +224,8 @@ func (h *RealLeaderHeartbeatController) commandServer() {
 		isDestroyed: false,
 		isPaused:    true,
 	}
+	timeout := time.Duration(h.HeartbeatInterval) * time.Millisecond
 	for {
-		var timeoutChan <-chan time.Time
-		if state.isStarted && !state.isDestroyed && !state.isPaused {
-			timeoutChan = time.After(time.Duration(h.HeartbeatInterval) * time.Millisecond)
-		}
 		select {
 		case cmd := <-h.commandChannel:
 			switch c := cmd.(type) {
@@ -241,7 +238,10 @@ func (h *RealLeaderHeartbeatController) commandServer() {
 			case *heartbeatControllerResume:
 				c.errorChannel <- h.handleHeartbeatControllerResume(state, c)
 			}
-		case <-timeoutChan:
+		case <-time.After(timeout):
+			if !state.isPaused {
+				h.handleTimeout(state)
+			}
 		}
 	}
 }
@@ -335,10 +335,6 @@ func (h *RealLeaderHeartbeatController) onBecomeCandidate(listenerState *heartbe
 	if err := h.tryPauseHeartbeat(listenerState); err != nil {
 		return err
 	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: heartbeatController,
-		logfield.Event:     "PAUSE-HEARTBEAT",
-	}).Debugf("now candidate - stop heartbeating for term %d", ev.TermID)
 	return nil
 }
 
@@ -346,10 +342,6 @@ func (h *RealLeaderHeartbeatController) onDowngradeToFollower(listenerState *hea
 	if err := h.tryPauseHeartbeat(listenerState); err != nil {
 		return err
 	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: heartbeatController,
-		logfield.Event:     "PAUSE-HEARTBEAT",
-	}).Debugf("now follower - stop heartbeating for term %d", ev.TermID)
 	return nil
 }
 
