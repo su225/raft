@@ -3,8 +3,10 @@ package election
 import (
 	"testing"
 
+	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/node/mock"
+	"github.com/su225/raft/node/state"
 )
 
 func TestRaftLeaderElectionAlgorithmReturnsTrueWhenItGetsMajorityVotesAndBecomesLeader(t *testing.T) {
@@ -14,13 +16,13 @@ func TestRaftLeaderElectionAlgorithmReturnsTrueWhenItGetsMajorityVotesAndBecomes
 		mock.SampleNodeID1,
 		mock.SampleNodeID2,
 	})
-	mockStateManager := mock.GetDefaultMockRaftStateManager(currentNodeID, true)
+	mockStateManager := state.GetDefaultMockRaftStateManager(currentNodeID, true)
 	electionAlgorithm := NewRaftLeaderElectionAlgorithm(
 		currentNodeID,
 		mockClient,
 		mockStateManager,
-		mock.GetDefaultMockWriteAheadLogManager(true),
-		mock.GetDefaultMockMembershipManager(currentNodeID),
+		log.GetDefaultMockWriteAheadLogManager(true),
+		cluster.GetDefaultMockMembershipManager(currentNodeID),
 	)
 	votedAsLeader, _ := electionAlgorithm.ConductElection()
 	if !votedAsLeader {
@@ -35,13 +37,13 @@ func TestRaftLeaderElectionAlgorithmReturnsTrueWhenItGetsMajorityVotesAndBecomes
 func TestRaftLeaderElectionAlgorithmReturnsFalseWhenItDoesNotGetMajorityAndDoesNotBecomeLeader(t *testing.T) {
 	currentNodeID := mock.SampleNodeID0
 	mockClient := newMockVoteRequesterClient([]string{currentNodeID})
-	mockStateManager := mock.GetDefaultMockRaftStateManager(currentNodeID, true)
+	mockStateManager := state.GetDefaultMockRaftStateManager(currentNodeID, true)
 	electionAlgorithm := NewRaftLeaderElectionAlgorithm(
 		currentNodeID,
 		mockClient,
 		mockStateManager,
-		mock.GetDefaultMockWriteAheadLogManager(true),
-		mock.GetDefaultMockMembershipManager(currentNodeID),
+		log.GetDefaultMockWriteAheadLogManager(true),
+		cluster.GetDefaultMockMembershipManager(currentNodeID),
 	)
 	votedAsLeader, _ := electionAlgorithm.ConductElection()
 	if votedAsLeader {

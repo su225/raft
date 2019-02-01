@@ -1,5 +1,9 @@
 package cluster
 
+import (
+	"github.com/su225/raft/node/mock"
+)
+
 // MockMembershipManager implements the mocked version of
 // membership manager which must be used ONLY FOR TESTING PURPOSES
 type MockMembershipManager struct {
@@ -14,6 +18,16 @@ func NewMockMembershipManager(nodes []NodeInfo) *MockMembershipManager {
 		mockMembershipMgr.Nodes[nodeInfo.ID] = nodeInfo
 	}
 	return mockMembershipMgr
+}
+
+// GetDefaultMockMembershipManager returns the mock membership manager with default settings
+// This is ONLY FOR TESTING PURPOSES
+func GetDefaultMockMembershipManager(currentNodeID string) *MockMembershipManager {
+	return NewMockMembershipManager([]NodeInfo{
+		NodeInfo{ID: currentNodeID},
+		NodeInfo{ID: mock.SampleNodeID1},
+		NodeInfo{ID: mock.SampleNodeID2},
+	})
 }
 
 // AddNode adds a new node to the membership table

@@ -1,6 +1,10 @@
 package state
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/su225/raft/node/mock"
+)
 
 var errMockStateManagerErr = errors.New("state-manager error")
 
@@ -27,6 +31,20 @@ func NewMockRaftStateManager(succeed bool, state RaftState) *MockRaftStateManage
 		UpgradeToLeaderCount:     0,
 		BecomeCandidateCount:     0,
 	}
+}
+
+// GetDefaultMockRaftStateManager returns the mock state manager with default settings
+// This is ONLY FOR TESTING PURPOSES
+func GetDefaultMockRaftStateManager(nodeID string, succeeds bool) *MockRaftStateManager {
+	return NewMockRaftStateManager(succeeds, RaftState{
+		RaftDurableState: RaftDurableState{
+			CurrentNodeID: nodeID,
+			CurrentTermID: 2,
+			VotedFor:      mock.SampleNodeID1,
+		},
+		CurrentRole:   RoleFollower,
+		CurrentLeader: mock.SampleNodeID2,
+	})
 }
 
 // DowngradeToFollower is not supported for mock. It just keeps a count of

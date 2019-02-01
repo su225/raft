@@ -30,6 +30,26 @@ func NewMockWriteAheadLogManager(succeed bool, initState WriteAheadLogMetadata, 
 	}
 }
 
+// GetDefaultMockWriteAheadLogManager returns the mock write-ahead log manager with default settings
+// This is ONLY FOR TESTING PURPOSES
+func GetDefaultMockWriteAheadLogManager(succeeds bool) *MockWriteAheadLogManager {
+	return NewMockWriteAheadLogManager(succeeds,
+		WriteAheadLogMetadata{
+			TailEntryID: EntryID{
+				TermID: 2,
+				Index:  3,
+			},
+			MaxCommittedIndex: 2,
+		},
+		map[uint64]Entry{
+			0: &SentinelEntry{},
+			1: &UpsertEntry{TermID: 1, Key: "a", Value: "1"},
+			2: &UpsertEntry{TermID: 2, Key: "b", Value: "2"},
+			3: &DeleteEntry{TermID: 2, Key: "a"},
+		},
+	)
+}
+
 // UpdateMaxCommittedIndex here is a no-op and just increments
 // the updateMaxCommittedIndexCount by 1
 func (w *MockWriteAheadLogManager) UpdateMaxCommittedIndex(index uint64) (uint64, error) {
