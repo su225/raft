@@ -30,13 +30,13 @@ func NewRaftKeyValueStore() *RaftKeyValueStore {
 // PutData adds the given key-value pair if it does not exist
 // or updates the value if the key already exists. If there is
 // some error in the process then it is returned
-func PutData(key string, value string) error {
+func (ds *RaftKeyValueStore) PutData(key string, value string) error {
 	return nil
 }
 
 // GetData returns the data for the given key-value pair if it
 // exists or an error otherwise.
-func GetData(key string) (string, error) {
+func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
 	return "", nil
 }
 
@@ -45,6 +45,6 @@ func GetData(key string) (string, error) {
 // error. If there is an error during the operation like failure
 // to replicate it to a majority of nodes in the cluster then
 // it is returned.
-func DeleteData(key string) error {
+func (ds *RaftKeyValueStore) DeleteData(key string) error {
 	return nil
 }
