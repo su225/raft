@@ -49,6 +49,8 @@ type Config struct {
 	ElectionTimeoutInMillis   int64 `json:"election_timeout_in_millis"`
 	HeartbeatIntervalInMillis int64 `json:"heartbeat_interval_in_millis"`
 	RPCTimeoutInMillis        int64 `json:"rpc_timeout_in_millis"`
+	APITimeoutInMillis        int64 `json:"api_timeout_in_millis"`
+	APIFwdTimeoutInMillis     int64 `json:"api_fwd_timeout_in_millis"`
 
 	MaxConnectionRetryAttempts uint32 `json:"max_conn_retry_attempts"`
 }

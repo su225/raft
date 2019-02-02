@@ -136,6 +136,15 @@ func parseConfig() (*node.Config, error) {
 		 reply. Otherwise it will be timed-out. But the connection might be maintained
 		 to the remote node if possible`)
 
+	apiTimeout := flag.Int64("api-timeout", 2000,
+		`API Timeout is the time within which the API call must complete. Otherwise
+		 something like Gateway timed out or internal server error are returned`)
+
+	apiFwdTimeout := flag.Int64("api-fwd-timeout", 1500,
+		`API Forward timeout is the timeout within which the response for the forwarded
+		 request must be returned. Otherwise it will be a gateway timeout or internal
+		 server error (or something related)`)
+
 	maxConnectionRetryAttempts := flag.Uint64("max-conn-retry-attempts", 5,
 		`Maximum connection retry attempts is the maximum number of times the current node
 		 tries to connect to some specified remote node before giving up`)
@@ -158,6 +167,8 @@ func parseConfig() (*node.Config, error) {
 		ElectionTimeoutInMillis:    *electionTimeout,
 		HeartbeatIntervalInMillis:  *heartbeatInterval,
 		RPCTimeoutInMillis:         *rpcTimeout,
+		APITimeoutInMillis:         *apiTimeout,
+		APIFwdTimeoutInMillis:      *apiFwdTimeout,
 		MaxConnectionRetryAttempts: uint32(*maxConnectionRetryAttempts),
 	}
 	return config, nil
