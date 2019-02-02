@@ -32,4 +32,15 @@ const (
 
 	// ErrorReason is used with error logger to denote the reason for error
 	ErrorReason = "reason"
+
+	// RequesterIPAddress is used in API server to log the address
+	// of the origin of the request.
+	RequesterIPAddress = "ip-addr"
+
+	// RESTMethod is used in API server to log the HTTP method of the request
+	// (like GET, PUT, POST, DELETE, PATCH etc)
+	RESTMethod = "method"
+
+	// RequestURI is used in API server to log the request URI
+	RequestURI = "uri"
 )
