@@ -92,6 +92,8 @@ end
 base_election_timeout = 3000
 heartbeat_interval = 500
 rpc_timeout = 1000
+api_timeout = 2000
+api_fwd_timeout = 1500
 max_conn_retry_attempts = 3
 command_for_node = []
 
@@ -128,6 +130,8 @@ cluster_node_info.each do |node_info|
         --election-timeout=#{base_election_timeout} \
         --heartbeat=#{heartbeat_interval} \
         --rpc-timeout=#{rpc_timeout} \
+        --api-timeout=#{api_timeout} \
+        --api-fwd-timeout=#{api_fwd_timeout} \
         --max-conn-retry-attempts=#{max_conn_retry_attempts}   
     """
     base_election_timeout += 1500
