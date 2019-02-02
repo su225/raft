@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
+	"github.com/su225/raft/node/datastore"
 	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/heartbeat"
 	"github.com/su225/raft/node/log"
@@ -112,6 +113,11 @@ type Context struct {
 	// it forwards to the leader node if it is known. Otherwise error is
 	// returned informing the same.
 	*rest.APIServer
+
+	// DataStore represents the API through which the distributed key-value
+	// store is accessed. All the complexities of distributing are hidden
+	// beneath this component.
+	datastore.DataStore
 }
 
 // NewContext creates a new node context and returns it
@@ -176,6 +182,8 @@ func NewContext(config *Config) *Context {
 	raftStateManager.RegisterSubscription(leaderElectionManager)
 	raftStateManager.RegisterSubscription(leaderHeartbeatController)
 
+	dataStore := datastore.NewRaftKeyValueStore()
+
 	apiServer := rest.NewAPIServer(
 		config.APIPort,
 		config.NodeID,
@@ -183,6 +191,7 @@ func NewContext(config *Config) *Context {
 		config.APIFwdTimeoutInMillis,
 		raftStateManager,
 		membershipManager,
+		dataStore,
 	)
 
 	return &Context{
@@ -199,6 +208,7 @@ func NewContext(config *Config) *Context {
 		LeaderElectionManager:     leaderElectionManager,
 		LeaderHeartbeatController: leaderHeartbeatController,
 		APIServer:                 apiServer,
+		DataStore:                 dataStore,
 	}
 }
 
