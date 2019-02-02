@@ -30,6 +30,7 @@ import (
 	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/heartbeat"
 	"github.com/su225/raft/node/log"
+	"github.com/su225/raft/node/rest"
 	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/rpc/server"
 	"github.com/su225/raft/node/state"
@@ -104,6 +105,13 @@ type Context struct {
 	// LeaderHeartbeatController is responsible for controlling the sending
 	// of heartbeat to remote nodes to establish authority as leader
 	heartbeat.LeaderHeartbeatController
+
+	// APIServer receives key-value store operation requests from the user.
+	// If the current node is the leader then it is appended to the log and
+	// it tries to replicate it to other nodes. If it is not a leader then
+	// it forwards to the leader node if it is known. Otherwise error is
+	// returned informing the same.
+	*rest.APIServer
 }
 
 // NewContext creates a new node context and returns it
@@ -168,6 +176,15 @@ func NewContext(config *Config) *Context {
 	raftStateManager.RegisterSubscription(leaderElectionManager)
 	raftStateManager.RegisterSubscription(leaderHeartbeatController)
 
+	apiServer := rest.NewAPIServer(
+		config.APIPort,
+		config.NodeID,
+		config.APITimeoutInMillis,
+		config.APIFwdTimeoutInMillis,
+		raftStateManager,
+		membershipManager,
+	)
+
 	return &Context{
 		RealRaftProtobufServer:    realRaftProtobufServer,
 		RaftProtobufClient:        realRaftProtobufClient,
@@ -181,6 +198,7 @@ func NewContext(config *Config) *Context {
 		LeaderElectionAlgorithm:   leaderElectionAlgo,
 		LeaderElectionManager:     leaderElectionManager,
 		LeaderHeartbeatController: leaderHeartbeatController,
+		APIServer:                 apiServer,
 	}
 }
 
@@ -208,6 +226,9 @@ func (ctx *Context) Start() error {
 	if probufStartErr := ctx.RealRaftProtobufServer.Start(); probufStartErr != nil {
 		return probufStartErr
 	}
+	if restStartErr := ctx.APIServer.Start(); restStartErr != nil {
+		return restStartErr
+	}
 	return nil
 }
 
@@ -219,6 +240,9 @@ func (ctx *Context) Destroy() error {
 	contextErrorMessage := &ContextLifecycleError{Errors: []error{}}
 	if protobufDestroyErr := ctx.RealRaftProtobufServer.Destroy(); protobufDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, protobufDestroyErr)
+	}
+	if restDestroyErr := ctx.APIServer.Destroy(); restDestroyErr != nil {
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, restDestroyErr)
 	}
 	if heartbeatDestroyErr := ctx.LeaderHeartbeatController.Destroy(); heartbeatDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, heartbeatDestroyErr)
