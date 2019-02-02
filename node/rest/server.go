@@ -2,8 +2,10 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
+	"github.com/su225/raft/node/datastore"
 	"github.com/su225/raft/node/state"
 )
 
@@ -49,6 +52,10 @@ type APIServer struct {
 
 	// Server represents the HTTP server
 	*http.Server
+
+	// DataStore provides the API to access Raft backed
+	// key-value storage
+	datastore.DataStore
 }
 
 // NewAPIServer creates a new instance of APIServer and returns it.
@@ -60,6 +67,7 @@ func NewAPIServer(
 	apiFwdTimeout int64,
 	stateMgr state.RaftStateManager,
 	membershipMgr cluster.MembershipManager,
+	dataStore datastore.DataStore,
 ) *APIServer {
 	return &APIServer{
 		APIPort:           apiPort,
@@ -68,6 +76,7 @@ func NewAPIServer(
 		APIForwardTimeout: apiFwdTimeout,
 		RaftStateManager:  stateMgr,
 		MembershipManager: membershipMgr,
+		DataStore:         dataStore,
 	}
 }
 
@@ -152,16 +161,91 @@ func (s *APIServer) deleteKey(w http.ResponseWriter, r *http.Request) {
 
 // handleUpsertRequest handles the upsert request.
 func (s *APIServer) handleUpsertRequest(w http.ResponseWriter, r *http.Request) {
+	kvBytes, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: err.Error(),
+			logfield.Component:   apiServer,
+			logfield.Event:       "UPSERT-READ-BODY",
+		}).Errorf("error while reading request body")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var kvPair datastore.KVPair
+	if unmarshalErr := json.Unmarshal(kvBytes, &kvPair); unmarshalErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: unmarshalErr.Error(),
+			logfield.Component:   apiServer,
+			logfield.Event:       "UPSERT-BODY-UNMARSHAL",
+		}).Errorf("error while unmarshaling request [JSON] body")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if putErr := s.DataStore.PutData(kvPair.Key, kvPair.Value); putErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: putErr.Error(),
+			logfield.Component:   apiServer,
+			logfield.Event:       "UPSERT-DS-PUT",
+		}).Errorf("error while upserting data into the store")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
 // handleDeleteRequest handles the get request.
 func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
+	pathParams := mux.Vars(r)
+	key, keyPresent := pathParams["key"]
+	if !keyPresent {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	value, retrieveErr := s.DataStore.GetData(key)
+	if retrieveErr != nil {
+		// TODO: Examine the type of retrieveErr and write
+		// responses accordingly. If the error is due to the
+		// fact that the given key doesn't exist then it must
+		// 404 - StatusNotFound instead of 500 - StatusInternalServerError
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	kvPair := datastore.KVPair{Key: key, Value: value}
+	marshaledKVPair, marshalErr := json.Marshal(kvPair)
+	if marshalErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: marshalErr.Error(),
+			logfield.Component:   apiServer,
+			logfield.Event:       "GET-MARSHAL-KV",
+		}).Errorf("error while marshaling key-value pair")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Write(marshaledKVPair)
 	w.WriteHeader(http.StatusOK)
 }
 
 // handleDeleteRequest handles the delete request
 func (s *APIServer) handleDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	pathParams := mux.Vars(r)
+	key, keyPresent := pathParams["key"]
+	if !keyPresent {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	delErr := s.DataStore.DeleteData(key)
+	if delErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: delErr.Error(),
+			logfield.Component:   apiServer,
+			logfield.Event:       "DEL-KV-PAIR",
+		}).Errorf("error while deleting key")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
