@@ -23,6 +23,11 @@ type replicationControllerResume struct {
 
 type replicateEntry struct {
 	replicationControllerCommand
-	entry     log.Entry
-	errorChan chan error
+	entryID   log.EntryID
+	replyChan chan *replicateEntryReply
+}
+
+type replicateEntryReply struct {
+	matchIndex     uint64
+	replicationErr error
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/heartbeat"
 	"github.com/su225/raft/node/log"
+	"github.com/su225/raft/node/replication"
 	"github.com/su225/raft/node/rest"
 	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/rpc/server"
@@ -118,6 +119,10 @@ type Context struct {
 	// store is accessed. All the complexities of distributing are hidden
 	// beneath this component.
 	datastore.DataStore
+
+	// EntryReplicationController is responsible for handling replication of
+	// entries across the cluster when the node is elected as leader
+	replication.EntryReplicationController
 }
 
 // NewContext creates a new node context and returns it
@@ -179,10 +184,22 @@ func NewContext(config *Config) *Context {
 		writeAheadLogManager,
 		membershipManager,
 	)
+	replicationController := replication.NewRealEntryReplicationController(
+		realRaftProtobufClient,
+		writeAheadLogManager,
+		config.NodeID,
+		membershipManager,
+	)
+
 	raftStateManager.RegisterSubscription(leaderElectionManager)
 	raftStateManager.RegisterSubscription(leaderHeartbeatController)
+	raftStateManager.RegisterSubscription(replicationController)
 
-	dataStore := datastore.NewRaftKeyValueStore()
+	dataStore := datastore.NewRaftKeyValueStore(
+		replicationController,
+		raftStateManager,
+		writeAheadLogManager,
+	)
 
 	apiServer := rest.NewAPIServer(
 		config.APIPort,
@@ -195,20 +212,21 @@ func NewContext(config *Config) *Context {
 	)
 
 	return &Context{
-		RealRaftProtobufServer:    realRaftProtobufServer,
-		RaftProtobufClient:        realRaftProtobufClient,
-		MembershipManager:         membershipManager,
-		EntryPersistence:          entryPersistence,
-		MetadataPersistence:       metadataPersistence,
-		WriteAheadLogManager:      writeAheadLogManager,
-		RaftStateManager:          raftStateManager,
-		RaftStatePersistence:      raftStatePersistence,
-		Voter:                     voter,
-		LeaderElectionAlgorithm:   leaderElectionAlgo,
-		LeaderElectionManager:     leaderElectionManager,
-		LeaderHeartbeatController: leaderHeartbeatController,
-		APIServer:                 apiServer,
-		DataStore:                 dataStore,
+		RealRaftProtobufServer:     realRaftProtobufServer,
+		RaftProtobufClient:         realRaftProtobufClient,
+		MembershipManager:          membershipManager,
+		EntryPersistence:           entryPersistence,
+		MetadataPersistence:        metadataPersistence,
+		WriteAheadLogManager:       writeAheadLogManager,
+		RaftStateManager:           raftStateManager,
+		RaftStatePersistence:       raftStatePersistence,
+		Voter:                      voter,
+		LeaderElectionAlgorithm:    leaderElectionAlgo,
+		LeaderElectionManager:      leaderElectionManager,
+		LeaderHeartbeatController:  leaderHeartbeatController,
+		APIServer:                  apiServer,
+		DataStore:                  dataStore,
+		EntryReplicationController: replicationController,
 	}
 }
 
@@ -229,6 +247,9 @@ func (ctx *Context) Start() error {
 	}
 	if heartbeatCtrlErr := ctx.LeaderHeartbeatController.Start(); heartbeatCtrlErr != nil {
 		return heartbeatCtrlErr
+	}
+	if replicationCtrlErr := ctx.EntryReplicationController.Start(); replicationCtrlErr != nil {
+		return replicationCtrlErr
 	}
 	if stateMgrStartErr := ctx.RaftStateManager.Start(); stateMgrStartErr != nil {
 		return stateMgrStartErr
@@ -259,6 +280,9 @@ func (ctx *Context) Destroy() error {
 	}
 	if leaderElectionMgrDestroyErr := ctx.LeaderElectionManager.Destroy(); leaderElectionMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, leaderElectionMgrDestroyErr)
+	}
+	if replicationCtrlDestroyErr := ctx.EntryReplicationController.Destroy(); replicationCtrlDestroyErr != nil {
+		contextErrorMessage.Errors = append(contextErrorMessage.Errors, replicationCtrlDestroyErr)
 	}
 	if stateMgrDestroyErr := ctx.RaftStateManager.Destroy(); stateMgrDestroyErr != nil {
 		contextErrorMessage.Errors = append(contextErrorMessage.Errors, stateMgrDestroyErr)

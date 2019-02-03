@@ -71,7 +71,7 @@ func (ep *FileBasedEntryPersistence) RetrieveEntry(index uint64) (Entry, error) 
 		return nil, readErr
 	}
 	var entry persistableEntry
-	unmarshalErr := json.Unmarshal(entryBytes, entry)
+	unmarshalErr := json.Unmarshal(entryBytes, &entry)
 	if unmarshalErr != nil {
 		return nil, unmarshalErr
 	}

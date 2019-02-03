@@ -33,3 +33,23 @@ func ConvertEntryToProtobuf(entry log.Entry) *raftpb.OpEntry {
 	}
 	return &raftpb.OpEntry{Entry: nil}
 }
+
+// ConvertProtobufToEntry converts from protobuf wire format
+// to the in-memory format.
+func ConvertProtobufToEntry(entry *raftpb.OpEntry) log.Entry {
+	termID := entry.GetTermId()
+	switch e := entry.Entry.(type) {
+	case *raftpb.OpEntry_Upsert:
+		return &log.UpsertEntry{
+			TermID: termID,
+			Key:    e.Upsert.Data.Key,
+			Value:  e.Upsert.Data.Value,
+		}
+	case *raftpb.OpEntry_Delete:
+		return &log.DeleteEntry{
+			TermID: termID,
+			Key:    e.Delete.Key,
+		}
+	}
+	return &log.SentinelEntry{}
+}

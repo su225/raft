@@ -53,6 +53,11 @@ type writeEntry struct {
 	replyChan chan *writeEntryReply
 }
 
+type writeEntryAfter struct {
+	writeEntry
+	beforeEntryID EntryID
+}
+
 type writeEntryReply struct {
 	tailLogEntryID EntryID
 	appendErr      error

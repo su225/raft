@@ -60,6 +60,13 @@ type WriteAheadLogManager interface {
 	// This operation is transactional as well as idempotent.
 	WriteEntry(index uint64, entry Entry) (tailLogEntryID EntryID, err error)
 
+	// WriteEntryAfter is like WriteEntry, but only writes the entry making
+	// sure that the previous entry ID matches with the specified previous
+	// entryID and the invariant that current index is one more than the previous
+	// one is satisfied. Also, the termID between previous and current index must
+	// be non-decreasing.
+	WriteEntryAfter(beforeEntryID EntryID, curIndex uint64, entry Entry) (tailLogEntryID EntryID, err error)
+
 	// GetEntry returns the entry at the given index if it is in the range from
 	// 0 to the index of the tail entry. If there is an error during the process
 	// either because the index is invalid or the persistence failure then it
@@ -183,6 +190,24 @@ func (wal *WriteAheadLogManagerImpl) WriteEntry(index uint64, entry Entry) (Entr
 	return reply.tailLogEntryID, reply.appendErr
 }
 
+// WriteEntryAfter writes the entry at the given index just like WriteEntry, but it must also satisfy
+// some more additional conditions on previous and current entry IDs. Previous Entry ID's term must
+// be less than or equal to the current Entry's term ID. Previous entry's index must be exactly one
+// less than current entry's index
+func (wal *WriteAheadLogManagerImpl) WriteEntryAfter(beforeEntryID EntryID, curIndex uint64, entry Entry) (EntryID, error) {
+	replyChannel := make(chan *writeEntryReply)
+	wal.commandChannel <- &writeEntryAfter{
+		writeEntry: writeEntry{
+			entry:     entry,
+			index:     curIndex,
+			replyChan: replyChannel,
+		},
+		beforeEntryID: beforeEntryID,
+	}
+	reply := <-replyChannel
+	return reply.tailLogEntryID, reply.appendErr
+}
+
 // GetEntry returns the entry at the corresponding index if it is valid. If the entry is retrieved
 // successfully then it is returned. In case of trouble error is returned with nil entry.
 func (wal *WriteAheadLogManagerImpl) GetEntry(index uint64) (Entry, error) {
@@ -226,6 +251,8 @@ func (wal *WriteAheadLogManagerImpl) loop() {
 			c.replyChan <- wal.handleAppendEntry(state, c)
 		case *writeEntry:
 			c.replyChan <- wal.handleWriteEntry(state, c)
+		case *writeEntryAfter:
+			c.replyChan <- wal.handleWriteEntryAfter(state, c)
 		case *getEntry:
 			c.replyChan <- wal.handleGetEntry(state, c)
 		}
@@ -394,12 +421,49 @@ func (wal *WriteAheadLogManagerImpl) handleWriteEntry(state *writeAheadLogManage
 	}
 }
 
+func (wal *WriteAheadLogManagerImpl) handleWriteEntryAfter(state *writeAheadLogManagerState, cmd *writeEntryAfter) *writeEntryReply {
+	beforeTailEntryID := state.WriteAheadLogMetadata.TailEntryID
+	if cmd.index == 0 {
+		return &writeEntryReply{
+			tailLogEntryID: beforeTailEntryID,
+			appendErr: &CannotWriteEntryError{
+				IndexAttempted: cmd.index,
+				CommittedIndex: state.WriteAheadLogMetadata.MaxCommittedIndex,
+				TailIndex:      beforeTailEntryID.Index,
+			},
+		}
+	}
+	prevEntryReply := wal.handleGetEntry(state, &getEntry{index: cmd.index - 1})
+	if prevEntryReply.retrievalErr != nil {
+		return &writeEntryReply{
+			tailLogEntryID: beforeTailEntryID,
+			appendErr:      prevEntryReply.retrievalErr,
+		}
+	}
+	prevEntryID := EntryID{
+		TermID: prevEntryReply.entry.GetTermID(),
+		Index:  cmd.index - 1,
+	}
+	if prevEntryID.TermID > cmd.entry.GetTermID() {
+		return &writeEntryReply{
+			tailLogEntryID: beforeTailEntryID,
+			appendErr: &EntryIDInvariantViolationError{
+				Message: "term ID should be non-decreasing",
+			},
+		}
+	}
+	return wal.handleWriteEntry(state, &cmd.writeEntry)
+}
+
 func (wal *WriteAheadLogManagerImpl) handleGetEntry(state *writeAheadLogManagerState, cmd *getEntry) *getEntryReply {
 	if statusErr := wal.checkOperationalStatus(state); statusErr != nil {
 		return &getEntryReply{
 			entry:        nil,
 			retrievalErr: statusErr,
 		}
+	}
+	if cmd.index == 0 {
+		return &getEntryReply{entry: &SentinelEntry{}}
 	}
 	entry, retrievalErr := wal.EntryPersistence.RetrieveEntry(cmd.index)
 	if retrievalErr != nil {

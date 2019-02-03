@@ -30,6 +30,7 @@ import (
 	"github.com/su225/raft/node/common"
 	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/log"
+	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/state"
 	"github.com/su225/raft/pb"
 	"google.golang.org/grpc"
@@ -256,13 +257,16 @@ func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerS
 	voteGranted, votingErr := rpcs.Voter.DecideVote(remoteNodeID, remoteTermID, remoteTailID)
 	currentRaftState := rpcs.GetRaftState()
 	rpcs.LeaderElectionManager.ResetTimeout()
+	if voteGranted {
+		logrus.WithFields(logrus.Fields{
+			Component: rpcServer,
+			Event:     "GRANT-VOTE",
+		}).Debugf("granted vote in term #%d to %s", remoteTermID, remoteNodeID)
+	}
 	return &requestVoteReply{
 		requestVoteError: votingErr,
 		GrantVoteReply: &raftpb.GrantVoteReply{
-			SenderInfo: &raftpb.NodeInfo{
-				NodeId: currentRaftState.CurrentNodeID,
-				TermId: currentRaftState.CurrentTermID,
-			},
+			SenderInfo:  rpcs.getProtobufHeader(&currentRaftState),
 			VoteGranted: voteGranted,
 		},
 	}
@@ -274,7 +278,63 @@ func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerS
 // term ID as the current node then the request is ignored. If the remote node is in higher term ID its heartbeat
 // should force this node to become its follower anyways.
 func (rpcs *RealRaftProtobufServer) handleAppendEntry(state *raftProtocolServerState, cmd *appendEntryRequest) *appendEntryReply {
-	return &appendEntryReply{}
+	remoteNodeID := cmd.AppendEntryRequest.GetSenderInfo().GetNodeId()
+	remoteTermID := cmd.AppendEntryRequest.GetSenderInfo().GetTermId()
+	currentRaftState := rpcs.RaftStateManager.GetRaftState()
+	currentTermID := currentRaftState.CurrentTermID
+
+	reply := &appendEntryReply{
+		appendEntryError: nil,
+		AppendEntryReply: &raftpb.AppendEntryReply{
+			SenderInfo: rpcs.getProtobufHeader(&currentRaftState),
+			Appended:   false,
+		},
+	}
+
+	logrus.WithFields(logrus.Fields{
+		Component: rpcServer,
+		Event:     "RECV-APPEND-ENTRY",
+	}).Debugf("received append-entry message from (%d,%d)", remoteNodeID, remoteTermID)
+
+	if currentTermID > remoteTermID {
+		return reply
+	}
+
+	// If termID is less than or equal to the remote Term ID then first downgrade to the
+	// status of follower accepting the remote node as leader. If there is any error in
+	// this process then don't write entry to the log and return error
+	if currentTermID <= remoteTermID {
+		if opErr := rpcs.RaftStateManager.DowngradeToFollower(remoteNodeID, remoteTermID); opErr != nil {
+			logrus.WithFields(logrus.Fields{
+				ErrorReason: opErr.Error(),
+				Component:   rpcServer,
+				Event:       "DOWNGRADE-TO-FOLLOWER",
+			}).Errorf("error while trying to step down as follower")
+			reply.Appended = false
+			reply.appendEntryError = opErr
+			return reply
+		}
+		prevEntryID := log.EntryID{
+			TermID: cmd.AppendEntryRequest.GetPrevTermId(),
+			Index:  cmd.AppendEntryRequest.GetCurEntryMetadata().Index - 1,
+		}
+		curIndex := cmd.AppendEntryRequest.GetCurEntryMetadata().GetIndex()
+		entry := rpc.ConvertProtobufToEntry(cmd.AppendEntryRequest.GetCurEntry())
+		_, writeErr := rpcs.WriteAheadLogManager.WriteEntryAfter(prevEntryID, curIndex, entry)
+		if writeErr != nil {
+			logrus.WithFields(logrus.Fields{
+				ErrorReason: writeErr.Error(),
+				Component:   rpcServer,
+				Event:       "WRITE-ENTRY",
+			}).Errorf("error while writing entry #%d", curIndex)
+			reply.appendEntryError = writeErr
+			reply.Appended = false
+			return reply
+		} else {
+			reply.Appended = true
+		}
+	}
+	return reply
 }
 
 // handleHeartbeat handles heartbeat from the remote node which claims to be the leader. If the remote node is
@@ -289,10 +349,7 @@ func (rpcs *RealRaftProtobufServer) handleHeartbeat(serverState *raftProtocolSer
 	reply := &heartbeatReply{
 		heartbeatError: nil,
 		HeartbeatReply: &raftpb.HeartbeatReply{
-			SenderInfo: &raftpb.NodeInfo{
-				NodeId: currentRaftState.CurrentNodeID,
-				TermId: currentRaftState.CurrentTermID,
-			},
+			SenderInfo:     rpcs.getProtobufHeader(&currentRaftState),
 			AcceptAsLeader: true,
 		},
 	}
@@ -312,18 +369,32 @@ func (rpcs *RealRaftProtobufServer) handleHeartbeat(serverState *raftProtocolSer
 				Event:       "DOWNGRADE-TO-FOLLOWER",
 			}).Errorf("error while trying to step down as follower")
 			reply.heartbeatError = opErr
-			reply.AcceptAsLeader = false
+			reply.AcceptAsLeader = true
 			return reply
 		}
 	}
+	if resetErr := rpcs.resetElectionTimeout(); resetErr != nil {
+		reply.heartbeatError = resetErr
+		return reply
+	}
+	return reply
+}
+
+func (rpcs *RealRaftProtobufServer) resetElectionTimeout() error {
 	if resetErr := rpcs.LeaderElectionManager.ResetTimeout(); resetErr != nil {
 		logrus.WithFields(logrus.Fields{
 			ErrorReason: resetErr.Error(),
 			Component:   rpcServer,
 			Event:       "RESET-TIMEOUT",
 		}).Errorf("error while election timeout reset")
-		reply.heartbeatError = resetErr
-		return reply
+		return resetErr
 	}
-	return reply
+	return nil
+}
+
+func (rpcs *RealRaftProtobufServer) getProtobufHeader(curState *state.RaftState) *raftpb.NodeInfo {
+	return &raftpb.NodeInfo{
+		NodeId: curState.CurrentNodeID,
+		TermId: curState.CurrentTermID,
+	}
 }
