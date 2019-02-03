@@ -362,6 +362,10 @@ func (rpcs *RealRaftProtobufServer) handleHeartbeat(serverState *raftProtocolSer
 	// If there is an issue then complain and reject authority
 	if (currentRaftState.CurrentRole != state.RoleLeader && currentRaftState.CurrentTermID == remoteTermID) ||
 		(currentRaftState.CurrentTermID < remoteTermID) {
+		if resetErr := rpcs.resetElectionTimeout(); resetErr != nil {
+			reply.heartbeatError = resetErr
+			return reply
+		}
 		if opErr := rpcs.RaftStateManager.DowngradeToFollower(remoteNodeID, remoteTermID); opErr != nil {
 			logrus.WithFields(logrus.Fields{
 				ErrorReason: opErr.Error(),
@@ -372,10 +376,17 @@ func (rpcs *RealRaftProtobufServer) handleHeartbeat(serverState *raftProtocolSer
 			reply.AcceptAsLeader = true
 			return reply
 		}
-	}
-	if resetErr := rpcs.resetElectionTimeout(); resetErr != nil {
-		reply.heartbeatError = resetErr
-		return reply
+		if _, updateErr := rpcs.WriteAheadLogManager.UpdateMaxCommittedIndex(cmd.HeartbeatRequest.GetLatestCommitIndex()); updateErr != nil {
+			logrus.WithFields(logrus.Fields{
+				ErrorReason: updateErr.Error(),
+				Component:   rpcServer,
+				Event:       "UPDATE-COMMIT-IDX",
+			}).Errorf("error while updating commit index to %d",
+				cmd.HeartbeatRequest.GetLatestCommitIndex())
+			reply.heartbeatError = updateErr
+			reply.AcceptAsLeader = true
+			return reply
+		}
 	}
 	return reply
 }

@@ -343,6 +343,12 @@ func (wal *WriteAheadLogManagerImpl) handleUpdateMaxCommittedIndex(state *writeA
 			}
 		}
 	}
+	if beforeMaxCommittedIndex < state.WriteAheadLogMetadata.MaxCommittedIndex {
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: writeAheadLog,
+			logfield.Event:     "UPDATE-COMMIT-IDX",
+		}).Debugf("updated committed index to %d", state.WriteAheadLogMetadata.MaxCommittedIndex)
+	}
 	return &updateMaxCommittedIndexReply{updatedIndex: state.WriteAheadLogMetadata.MaxCommittedIndex}
 }
 
