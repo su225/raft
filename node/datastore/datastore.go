@@ -62,7 +62,23 @@ func (ds *RaftKeyValueStore) PutData(key string, value string) error {
 // GetData returns the data for the given key-value pair if it
 // exists or an error otherwise.
 func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
-	return "", nil
+	// slow and dumb version of get-data
+	// TODO: Implement snapshot feature
+	kvStore := make(map[string]string)
+	metadata, _ := ds.WriteAheadLogManager.GetMetadata()
+	for i := uint64(1); i <= metadata.MaxCommittedIndex; i++ {
+		entry, retrieveErr := ds.WriteAheadLogManager.GetEntry(i)
+		if retrieveErr != nil {
+			return "", retrieveErr
+		}
+		switch e := entry.(type) {
+		case *log.UpsertEntry:
+			kvStore[e.Key] = e.Value
+		case *log.DeleteEntry:
+			delete(kvStore, e.Key)
+		}
+	}
+	return kvStore[key], nil
 }
 
 // DeleteData deletes the key-value pair with the given key if
