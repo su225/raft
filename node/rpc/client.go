@@ -443,6 +443,7 @@ func (rpcc *RealRaftProtobufClient) getConnection(state *raftProtocolClientState
 			logfield.Component:   raftProtocolClient,
 			logfield.Event:       "GET-CONN",
 		}).Errorf("cannot obtain connection to %s", state.remoteNodeInfo.ID)
+		go rpcc.tryReconnect(state.remoteNodeInfo.ID)
 		return nil, connErr
 	}
 	state.ClientConn = grpcConn
