@@ -15,6 +15,7 @@ type MockWriteAheadLogManager struct {
 	UpdateMaxCommittedIndexCount uint64
 	AppendEntryCount             uint64
 	WriteEntryCount              uint64
+	WriteEntryAfterCount         uint64
 
 	Entries map[uint64]Entry
 	WriteAheadLogMetadata
@@ -75,6 +76,15 @@ func (w *MockWriteAheadLogManager) WriteEntry(index uint64, entry Entry) (EntryI
 		return EntryID{}, errWriteAheadLog
 	}
 	w.WriteEntryCount++
+	return w.WriteAheadLogMetadata.TailEntryID, nil
+}
+
+// WriteEntryAfter is a no-op and increments WriteEntryAfterCount by 1
+func (w *MockWriteAheadLogManager) WriteEntryAfter(beforeEntryID EntryID, curIndex uint64, entry Entry) (EntryID, error) {
+	if !w.ShouldSucceed {
+		return EntryID{}, errWriteAheadLog
+	}
+	w.WriteEntryAfterCount++
 	return w.WriteAheadLogMetadata.TailEntryID, nil
 }
 
