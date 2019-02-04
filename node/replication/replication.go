@@ -193,13 +193,19 @@ func (m *matchIndexCollector) canCommit(idx uint64, needed int32) bool {
 func (r *RealEntryReplicationController) ReplicateEntry(entryID log.EntryID, entry log.Entry) error {
 	totalNodes := int32(len(r.commandChannel) + 1)
 	majorityCount := int32(totalNodes/2 + 1)
-	waitForMajority := make(chan struct{})
-	majoritySignal := sync.Once{}
-	nodesReached := int32(1)
+
+	proceed, proceedSignal := make(chan struct{}), sync.Once{}
+	replicationCount, nodesReached := int32(1), int32(1)
 	matchIndexCollector := newMatchIndexCollector()
 
 	for nodeID, nodeChan := range r.commandChannel {
 		go func(nodeID string, nodeChan chan<- replicationControllerCommand) {
+			defer func() {
+				updatedNodesReached := atomic.AddInt32(&nodesReached, 1)
+				if updatedNodesReached == totalNodes {
+					proceedSignal.Do(func() { proceed <- struct{}{} })
+				}
+			}()
 			replyChan := make(chan *replicateEntryReply)
 			nodeChan <- &replicateEntry{
 				entryID:   entryID,
@@ -216,13 +222,15 @@ func (r *RealEntryReplicationController) ReplicateEntry(entryID log.EntryID, ent
 				return
 			}
 			matchIndexCollector.add(reply.matchIndex)
-			updatedNodesReached := atomic.AddInt32(&nodesReached, 1)
-			if updatedNodesReached >= majorityCount {
-				majoritySignal.Do(func() { waitForMajority <- struct{}{} })
+			if updatedReplicationCount := atomic.AddInt32(&replicationCount, 1); updatedReplicationCount >= majorityCount {
+				proceedSignal.Do(func() { proceed <- struct{}{} })
 			}
 		}(nodeID, nodeChan)
 	}
-	<-waitForMajority
+	<-proceed
+	if atomic.LoadInt32(&replicationCount) < majorityCount {
+		return &EntryCannotBeCommittedError{Index: entryID.Index}
+	}
 	if !matchIndexCollector.canCommit(entryID.Index, majorityCount) {
 		return &EntryCannotBeCommittedError{Index: entryID.Index}
 	}

@@ -10,6 +10,7 @@ test-all:
 	go test -timeout=3s ./node/heartbeat
 	go test -timeout=3s ./node/log
 	go test -timeout=3s ./node/state
+	go test -timeout=3s ./node/replication
 
 test:
 	go test -timeout=3s $(PACKAGE) 
