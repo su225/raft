@@ -8,8 +8,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/su225/raft/node/datastore"
+	"github.com/su225/raft/node/data"
 )
+
+// SnapshotMetadata represents the metadata associated
+// with the snapshot like its epoch and index
+type SnapshotMetadata struct {
+	Epoch uint64 `json:"epoch"`
+	Index uint64 `json:"index"`
+}
 
 // SnapshotPersistence is responsible for persistence
 // operations of the snapshot - like storing/deleting key-value
@@ -17,11 +24,11 @@ import (
 type SnapshotPersistence interface {
 	// PersistKeyValuePair persists the given key-value pair in the given epoch.
 	// If there is any issue during the operation then error is returned
-	PersistKeyValuePair(epoch uint64, keyValuePair datastore.KVPair) error
+	PersistKeyValuePair(epoch uint64, keyValuePair data.KVPair) error
 
 	// RetrieveKeyValuePair retrieves the key-value pair for the given key given
 	// the epoch. If there is any retrieval related errors then it is returned
-	RetrieveKeyValuePair(epoch uint64, key string) (datastore.KVPair, error)
+	RetrieveKeyValuePair(epoch uint64, key string) (data.KVPair, error)
 
 	// DeleteKeyValuePair deletes the given key value pair if it exists. If there
 	// is any error during operation then it is returned
@@ -38,7 +45,7 @@ type SnapshotPersistence interface {
 
 	// ForEachKey iterates over each key in the given epoch and applies the
 	// operation on each of the key-value pair
-	ForEachKey(epoch uint64, operation func(kv datastore.KVPair) error) error
+	ForEachKey(epoch uint64, operation func(kv data.KVPair) error) error
 }
 
 // SnapshotMetadataPersistence is responsible for persisting
@@ -70,7 +77,7 @@ func NewSimpleFileBasedSnapshotPersistence(snapshotPath string) *SimpleFileBased
 
 // PersistKeyValuePair persists the key-value pair in the given epoch. If there is any error during
 // the operation then it is reported
-func (sp *SimpleFileBasedSnapshotPersistence) PersistKeyValuePair(epoch uint64, keyValuePair datastore.KVPair) error {
+func (sp *SimpleFileBasedSnapshotPersistence) PersistKeyValuePair(epoch uint64, keyValuePair data.KVPair) error {
 	kvPath := sp.getKVPairFilename(epoch, keyValuePair.Key)
 	kvBytes, marshalErr := json.Marshal(keyValuePair)
 	if marshalErr != nil {
@@ -81,7 +88,7 @@ func (sp *SimpleFileBasedSnapshotPersistence) PersistKeyValuePair(epoch uint64, 
 
 // RetrieveKeyValuePair retrieves the key-value pair in the given epoch. If there is any error
 // during the operation then it is reported.
-func (sp *SimpleFileBasedSnapshotPersistence) RetrieveKeyValuePair(epoch uint64, key string) (datastore.KVPair, error) {
+func (sp *SimpleFileBasedSnapshotPersistence) RetrieveKeyValuePair(epoch uint64, key string) (data.KVPair, error) {
 	kvPath := sp.getKVPairFilename(epoch, key)
 	return sp.getKVPairFromFile(kvPath)
 }
@@ -117,7 +124,7 @@ func (sp *SimpleFileBasedSnapshotPersistence) DeleteEpoch(epoch uint64) error {
 
 // ForEachKey iterates over each key-value pair in the given epoch and performs the given
 // "operation" on each of the key-value pair.
-func (sp *SimpleFileBasedSnapshotPersistence) ForEachKey(epoch uint64, operation func(kv datastore.KVPair) error) error {
+func (sp *SimpleFileBasedSnapshotPersistence) ForEachKey(epoch uint64, operation func(kv data.KVPair) error) error {
 	epochPath := sp.getEpochPath(epoch)
 	return filepath.Walk(epochPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -133,14 +140,14 @@ func (sp *SimpleFileBasedSnapshotPersistence) ForEachKey(epoch uint64, operation
 
 // getKVPairFromFile reads the key-value pair from file and unmarshals it to KVPair. If there is
 // any error during the process then it is returned.
-func (sp *SimpleFileBasedSnapshotPersistence) getKVPairFromFile(filePath string) (datastore.KVPair, error) {
+func (sp *SimpleFileBasedSnapshotPersistence) getKVPairFromFile(filePath string) (data.KVPair, error) {
 	kvBytes, ioErr := ioutil.ReadFile(filePath)
 	if ioErr != nil {
-		return datastore.KVPair{}, ioErr
+		return data.KVPair{}, ioErr
 	}
-	var kvPair datastore.KVPair
+	var kvPair data.KVPair
 	if unmarshalErr := json.Unmarshal(kvBytes, &kvPair); unmarshalErr != nil {
-		return datastore.KVPair{}, unmarshalErr
+		return data.KVPair{}, unmarshalErr
 	}
 	return kvPair, nil
 }

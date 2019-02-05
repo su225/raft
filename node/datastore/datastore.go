@@ -8,13 +8,6 @@ import (
 	"github.com/su225/raft/node/state"
 )
 
-// KVPair represent the key-value pair stored
-// in the data-store
-type KVPair struct {
-	Key   string `json:"k"`
-	Value string `json:"v"`
-}
-
 const dataStore = "DS"
 
 // DataStore defines the operations that must
