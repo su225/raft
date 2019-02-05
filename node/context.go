@@ -36,6 +36,7 @@ import (
 	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/rpc/server"
 	"github.com/su225/raft/node/state"
+	"github.com/su225/raft/node/snapshot"
 )
 
 var context = "CONTEXT"
@@ -123,6 +124,14 @@ type Context struct {
 	// EntryReplicationController is responsible for handling replication of
 	// entries across the cluster when the node is elected as leader
 	replication.EntryReplicationController
+
+	// SnapshotPersistence is responsible for handling persistence of key-value
+	// pairs as part of the snapshot
+	snapshot.SnapshotPersistence
+
+	// SnapshotMetadataPersistence is responsible for handling persistence of
+	// snapshot related metadata like snapshot index, epoch etc
+	snapshot.SnapshotMetadataPersistence
 }
 
 // NewContext creates a new node context and returns it
@@ -211,22 +220,27 @@ func NewContext(config *Config) *Context {
 		dataStore,
 	)
 
+	snapshotPersistence := snapshot.NewSimpleFileBasedSnapshotPersistence(config.SnapshotPath)
+	snapshotMetadataPersistence := snapshot.NewSimpleFileBasedSnapshotMetadataPersistence(config.SnapshotPath)
+
 	return &Context{
-		RealRaftProtobufServer:     realRaftProtobufServer,
-		RaftProtobufClient:         realRaftProtobufClient,
-		MembershipManager:          membershipManager,
-		EntryPersistence:           entryPersistence,
-		MetadataPersistence:        metadataPersistence,
-		WriteAheadLogManager:       writeAheadLogManager,
-		RaftStateManager:           raftStateManager,
-		RaftStatePersistence:       raftStatePersistence,
-		Voter:                      voter,
-		LeaderElectionAlgorithm:    leaderElectionAlgo,
-		LeaderElectionManager:      leaderElectionManager,
-		LeaderHeartbeatController:  leaderHeartbeatController,
-		APIServer:                  apiServer,
-		DataStore:                  dataStore,
-		EntryReplicationController: replicationController,
+		RealRaftProtobufServer:      realRaftProtobufServer,
+		RaftProtobufClient:          realRaftProtobufClient,
+		MembershipManager:           membershipManager,
+		EntryPersistence:            entryPersistence,
+		MetadataPersistence:         metadataPersistence,
+		WriteAheadLogManager:        writeAheadLogManager,
+		RaftStateManager:            raftStateManager,
+		RaftStatePersistence:        raftStatePersistence,
+		Voter:                       voter,
+		LeaderElectionAlgorithm:     leaderElectionAlgo,
+		LeaderElectionManager:       leaderElectionManager,
+		LeaderHeartbeatController:   leaderHeartbeatController,
+		APIServer:                   apiServer,
+		DataStore:                   dataStore,
+		EntryReplicationController:  replicationController,
+		SnapshotPersistence:         snapshotPersistence,
+		SnapshotMetadataPersistence: snapshotMetadataPersistence,
 	}
 }
 

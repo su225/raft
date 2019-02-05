@@ -53,6 +53,8 @@ type Config struct {
 	APIFwdTimeoutInMillis     int64 `json:"api_fwd_timeout_in_millis"`
 
 	MaxConnectionRetryAttempts uint32 `json:"max_conn_retry_attempts"`
+
+	SnapshotPath string `json:"snapshot_path"`
 }
 
 // Validate goes through the configuration and returns a list of

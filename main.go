@@ -149,6 +149,9 @@ func parseConfig() (*node.Config, error) {
 		`Maximum connection retry attempts is the maximum number of times the current node
 		 tries to connect to some specified remote node before giving up`)
 
+	snapshotPath := flag.String("snapshot-path", ".",
+		`Snapshot path is the directory where snapshot information and related metadata is kept`)
+
 	flag.Parse()
 	isConfigFileSpecified := len(*configFile) > 0
 	if isConfigFileSpecified {
@@ -170,6 +173,7 @@ func parseConfig() (*node.Config, error) {
 		APITimeoutInMillis:         *apiTimeout,
 		APIFwdTimeoutInMillis:      *apiFwdTimeout,
 		MaxConnectionRetryAttempts: uint32(*maxConnectionRetryAttempts),
+		SnapshotPath:               *snapshotPath,
 	}
 	return config, nil
 }
