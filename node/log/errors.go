@@ -37,3 +37,15 @@ func (e *CannotWriteEntryError) Error() string {
 func (e *EntryIDInvariantViolationError) Error() string {
 	return fmt.Sprintf("entry ID invariant violation: %s", e.Message)
 }
+
+// InvalidEpochError is returned when the valid epoch bounds
+// for the operation are violated
+type InvalidEpochError struct {
+	StrictLowerBound uint64
+	StrictUpperBound uint64
+}
+
+func (e *InvalidEpochError) Error() string {
+	return fmt.Sprintf("epoch e must satisfy [%d < e < %d]",
+		e.StrictLowerBound, e.StrictUpperBound)
+}
