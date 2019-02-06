@@ -1,4 +1,4 @@
-package snapshot
+package log
 
 import (
 	"crypto/sha256"
