@@ -25,6 +25,14 @@ type ComponentIsPausedError struct {
 	Message       string
 }
 
+// ComponentIsFrozenError occurs when an attempt is made to perform
+// some operation on a frozen component (other than freezing/unfreezing)
+// In frozen state, read-only operations are permitted though.
+type ComponentIsFrozenError struct {
+	ComponentName string
+	Message       string
+}
+
 func (e *ComponentHasNotStartedError) Error() string {
 	return fmt.Sprintf("Component %s has not yet started. Message=%s", e.ComponentName, e.Message)
 }
@@ -35,4 +43,8 @@ func (e *ComponentIsDestroyedError) Error() string {
 
 func (e *ComponentIsPausedError) Error() string {
 	return fmt.Sprintf("Component %s is paused. Message=%s", e.ComponentName, e.Message)
+}
+
+func (e *ComponentIsFrozenError) Error() string {
+	return fmt.Sprintf("Component %s is destroyed. Message=%s", e.ComponentName, e.Message)
 }
