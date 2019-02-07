@@ -34,6 +34,11 @@ type runSnapshotBuilder struct {
 	errorChan chan error
 }
 
+type stopSnapshotBuilder struct {
+	snapshotHandlerCommand
+	errorChan chan error
+}
+
 type addKVPair struct {
 	snapshotHandlerCommand
 	epoch      uint64
@@ -86,4 +91,10 @@ type setCurrentEpoch struct {
 type getCurrentSnapshotIndex struct {
 	snapshotHandlerCommand
 	replyChan chan uint64
+}
+
+type setCurrentSnapshotIndex struct {
+	snapshotHandlerCommand
+	index     uint64
+	errorChan chan error
 }
