@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
+	"github.com/su225/raft/node/data"
 	"github.com/su225/raft/node/datastore"
 	"github.com/su225/raft/node/state"
 )
@@ -173,7 +174,7 @@ func (s *APIServer) handleUpsertRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var kvPair datastore.KVPair
+	var kvPair data.KVPair
 	if unmarshalErr := json.Unmarshal(kvBytes, &kvPair); unmarshalErr != nil {
 		logrus.WithFields(logrus.Fields{
 			logfield.ErrorReason: unmarshalErr.Error(),
@@ -213,7 +214,7 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	kvPair := datastore.KVPair{Key: key, Value: value}
+	kvPair := data.KVPair{Key: key, Value: value}
 	marshaledKVPair, marshalErr := json.Marshal(kvPair)
 	if marshalErr != nil {
 		logrus.WithFields(logrus.Fields{

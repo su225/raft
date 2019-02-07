@@ -36,7 +36,6 @@ import (
 	"github.com/su225/raft/node/rpc"
 	"github.com/su225/raft/node/rpc/server"
 	"github.com/su225/raft/node/state"
-	"github.com/su225/raft/node/snapshot"
 )
 
 var context = "CONTEXT"
@@ -127,11 +126,14 @@ type Context struct {
 
 	// SnapshotPersistence is responsible for handling persistence of key-value
 	// pairs as part of the snapshot
-	snapshot.SnapshotPersistence
+	log.SnapshotPersistence
 
 	// SnapshotMetadataPersistence is responsible for handling persistence of
 	// snapshot related metadata like snapshot index, epoch etc
-	snapshot.SnapshotMetadataPersistence
+	log.SnapshotMetadataPersistence
+
+	// SnapshotHandler is responsible for handling snapshot
+	log.SnapshotHandler
 }
 
 // NewContext creates a new node context and returns it
@@ -157,7 +159,16 @@ func NewContext(config *Config) *Context {
 	writeAheadLogManager := log.NewWriteAheadLogManagerImpl(
 		entryPersistence,
 		metadataPersistence,
+		nil, // SnapshotHandler filled later
 	)
+	snapshotPersistence := log.NewSimpleFileBasedSnapshotPersistence(config.SnapshotPath)
+	snapshotMetadataPersistence := log.NewSimpleFileBasedSnapshotMetadataPersistence(config.SnapshotPath)
+	snapshotHandler := log.NewRealSnapshotHandler(
+		writeAheadLogManager,
+		snapshotPersistence,
+		snapshotMetadataPersistence,	
+	)
+	writeAheadLogManager.SnapshotHandler = snapshotHandler
 
 	raftStatePersistence := state.NewFileBasedRaftStatePersistence(config.RaftStatePath)
 	raftStateManager := state.NewRealRaftStateManager(
@@ -220,9 +231,6 @@ func NewContext(config *Config) *Context {
 		dataStore,
 	)
 
-	snapshotPersistence := snapshot.NewSimpleFileBasedSnapshotPersistence(config.SnapshotPath)
-	snapshotMetadataPersistence := snapshot.NewSimpleFileBasedSnapshotMetadataPersistence(config.SnapshotPath)
-
 	return &Context{
 		RealRaftProtobufServer:      realRaftProtobufServer,
 		RaftProtobufClient:          realRaftProtobufClient,
@@ -241,6 +249,7 @@ func NewContext(config *Config) *Context {
 		EntryReplicationController:  replicationController,
 		SnapshotPersistence:         snapshotPersistence,
 		SnapshotMetadataPersistence: snapshotMetadataPersistence,
+		SnapshotHandler: snapshotHandler,
 	}
 }
 

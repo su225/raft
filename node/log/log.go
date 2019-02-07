@@ -95,6 +95,7 @@ type WriteAheadLogManager interface {
 type WriteAheadLogManagerImpl struct {
 	EntryPersistence
 	MetadataPersistence
+	SnapshotHandler
 	commandChannel chan writeAheadLogManagerCommand
 }
 
@@ -104,10 +105,12 @@ type WriteAheadLogManagerImpl struct {
 func NewWriteAheadLogManagerImpl(
 	entryPersistence EntryPersistence,
 	metadataPersistence MetadataPersistence,
+	snapshotHandler SnapshotHandler,
 ) *WriteAheadLogManagerImpl {
 	return &WriteAheadLogManagerImpl{
 		EntryPersistence:    entryPersistence,
 		MetadataPersistence: metadataPersistence,
+		SnapshotHandler:     snapshotHandler,
 		commandChannel:      make(chan writeAheadLogManagerCommand),
 	}
 }
@@ -117,12 +120,13 @@ func NewWriteAheadLogManagerImpl(
 // it recovers the metadata of the write-ahead log from the disk.
 func (wal *WriteAheadLogManagerImpl) Start() error {
 	go wal.loop()
-	if recoveryErr := wal.Recover(); recoveryErr != nil {
-		return recoveryErr
-	}
 	errorChannel := make(chan error)
 	wal.commandChannel <- &startWriteAheadLogManager{errChan: errorChannel}
-	return <-errorChannel
+	if err := <-errorChannel; err != nil {
+		return err
+	}
+	return wal.Recover()
+
 }
 
 // Destroy makes the component non-operational. In other words, no operation can be
@@ -271,6 +275,10 @@ func (wal *WriteAheadLogManagerImpl) handleStartWriteAheadLogManager(state *writ
 		logfield.Component: writeAheadLog,
 		logfield.Event:     "DESTROY",
 	}).Infoln("started write-ahead log manager")
+
+	if err := wal.SnapshotHandler.Start(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -278,6 +286,7 @@ func (wal *WriteAheadLogManagerImpl) handleDestroyWriteAheadLogManager(state *wr
 	if state.isDestroyed {
 		return nil
 	}
+	wal.SnapshotHandler.Destroy()
 	state.isDestroyed = true
 	logrus.WithFields(logrus.Fields{
 		logfield.Component: writeAheadLog,
@@ -304,9 +313,15 @@ func (wal *WriteAheadLogManagerImpl) handleRecoverWriteAheadLogManager(state *wr
 			},
 			MaxCommittedIndex: 0,
 		}
-		return nil
 	}
-	state.WriteAheadLogMetadata = *metadata
+	// SnapshotMetadata must be recovered. Otherwise, the value of the key-value pair
+	// read might turn out to be wrong if the node becomes the leader. So it must fail
+	if snapshotMetaErr := wal.SnapshotHandler.Recover(); snapshotMetaErr != nil {
+		return snapshotMetaErr
+	}
+	if metadata != nil {
+		state.WriteAheadLogMetadata = *metadata
+	}
 	return nil
 }
 
@@ -348,6 +363,7 @@ func (wal *WriteAheadLogManagerImpl) handleUpdateMaxCommittedIndex(state *writeA
 			logfield.Component: writeAheadLog,
 			logfield.Event:     "UPDATE-COMMIT-IDX",
 		}).Debugf("updated committed index to %d", state.WriteAheadLogMetadata.MaxCommittedIndex)
+		go wal.SnapshotHandler.RunSnapshotBuilder()
 	}
 	return &updateMaxCommittedIndexReply{updatedIndex: state.WriteAheadLogMetadata.MaxCommittedIndex}
 }

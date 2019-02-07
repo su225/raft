@@ -294,7 +294,7 @@ func (rpcs *RealRaftProtobufServer) handleAppendEntry(state *raftProtocolServerS
 	logrus.WithFields(logrus.Fields{
 		Component: rpcServer,
 		Event:     "RECV-APPEND-ENTRY",
-	}).Debugf("received append-entry message from (%d,%d)", remoteNodeID, remoteTermID)
+	}).Debugf("received append-entry message from (%s,%d)", remoteNodeID, remoteTermID)
 
 	if currentTermID > remoteTermID {
 		return reply

@@ -132,7 +132,8 @@ cluster_node_info.each do |node_info|
         --rpc-timeout=#{rpc_timeout} \
         --api-timeout=#{api_timeout} \
         --api-fwd-timeout=#{api_fwd_timeout} \
-        --max-conn-retry-attempts=#{max_conn_retry_attempts}   
+        --max-conn-retry-attempts=#{max_conn_retry_attempts} \
+        --snapshot-path=#{node_directories[:snapshot_dir]} 
     """
     base_election_timeout += 1500
 end

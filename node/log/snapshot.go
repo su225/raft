@@ -121,6 +121,7 @@ func NewRealSnapshotHandler(
 		parentWALog:                 parentWALog,
 		SnapshotPersistence:         snapPersistence,
 		SnapshotMetadataPersistence: snapMetaPersistence,
+		commandChan:                 make(chan snapshotHandlerCommand),
 	}
 }
 
@@ -130,7 +131,10 @@ func (sh *RealSnapshotHandler) Start() error {
 	go sh.loop()
 	errorChan := make(chan error)
 	sh.commandChan <- &snapshotHandlerStart{errorChan: errorChan}
-	return <-errorChan
+	if err := <-errorChan; err != nil {
+		return err
+	}
+	return sh.Recover()
 }
 
 // Destroy makes the component non-functional irreversibly and cleans
@@ -286,6 +290,12 @@ func (sh *RealSnapshotHandler) SetCurrentSnapshotIndex(index uint64) error {
 	return <-errorChan
 }
 
+func (sh *RealSnapshotHandler) terminateSnapshotBuilder() error {
+	errorChan := make(chan error)
+	sh.commandChan <- &terminateSnapshotBuilder{errorChan: errorChan}
+	return <-errorChan
+}
+
 type snapshotHandlerState struct {
 	isStarted               bool
 	isDestroyed             bool
@@ -304,7 +314,7 @@ func (sh *RealSnapshotHandler) loop() {
 		snapshotBuilderStopChan: make(chan struct{}),
 		SnapshotMetadata: SnapshotMetadata{
 			Index: 0,
-			Epoch: 0,
+			Epoch: 1,
 		},
 	}
 	for {
@@ -320,24 +330,31 @@ func (sh *RealSnapshotHandler) loop() {
 			c.errorChan <- sh.handleSnapshotHandlerFreeze(state)
 		case *snapshotHandlerUnfreeze:
 			c.errorChan <- sh.handleSnapshotHandlerUnfreeze(state)
+
 		case *runSnapshotBuilder:
 			c.errorChan <- sh.handleRunSnapshotBuilder(state)
 		case *stopSnapshotBuilder:
 			c.errorChan <- sh.handleStopSnapshotBuilder(state)
+		case *terminateSnapshotBuilder:
+			c.errorChan <- sh.handleTerminateSnapshotBuilder(state)
+
 		case *addKVPair:
 			c.errorChan <- sh.handleAddKVPair(state, c)
 		case *removeKVPair:
 			c.errorChan <- sh.handleRemoveKVPair(state, c)
 		case *getKVPair:
 			c.replyChan <- sh.handleGetKVPair(state, c)
+
 		case *createEpoch:
 			c.errorChan <- sh.handleCreateEpoch(state, c)
 		case *deleteEpoch:
 			c.errorChan <- sh.handleDeleteEpoch(state, c)
+
 		case *getCurrentEpoch:
 			c.replyChan <- sh.handleGetCurrentEpoch(state)
 		case *setCurrentEpoch:
 			c.errorChan <- sh.handleSetCurrentEpoch(state, c)
+
 		case *getCurrentSnapshotIndex:
 			c.replyChan <- sh.handleGetCurrentSnapshotIndex(state)
 		case *setCurrentSnapshotIndex:
@@ -350,14 +367,6 @@ func (sh *RealSnapshotHandler) loop() {
 func (sh *RealSnapshotHandler) handleSnapshotHandlerStart(state *snapshotHandlerState) error {
 	if state.isDestroyed {
 		return errSnapshotHandlerDestroyed
-	}
-	if recoveryErr := sh.handleSnapshotHandlerRecover(state); recoveryErr != nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.ErrorReason: recoveryErr.Error(),
-			logfield.Component:   snapshotHandler,
-			logfield.Event:       "RECOVERY",
-		}).Errorf("error while recovering snapshot handler state.")
-		return recoveryErr
 	}
 	state.isStarted = true
 	return nil
@@ -390,6 +399,7 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerRecover(state *snapshotHandl
 	if retrieveErr != nil {
 		if os.IsNotExist(retrieveErr) {
 			state.SnapshotMetadata = SnapshotMetadata{Epoch: 1, Index: 0}
+			sh.SnapshotPersistence.StartEpoch(state.Epoch)
 			return nil
 		}
 		logrus.WithFields(logrus.Fields{
@@ -400,6 +410,7 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerRecover(state *snapshotHandl
 		return retrieveErr
 	}
 	state.SnapshotMetadata = *metadata
+	sh.SnapshotPersistence.StartEpoch(state.Epoch)
 	return nil
 }
 
@@ -447,7 +458,21 @@ func (sh *RealSnapshotHandler) handleStopSnapshotBuilder(state *snapshotHandlerS
 	if !state.isRunning {
 		return nil
 	}
-	state.snapshotBuilderStopChan <- struct{}{}
+	// It asynchronously sends stop signal to the snapshot builder
+	// which in turn notifies the command server to flip the running
+	// switch to false to complete the stop process
+	go func(stopChan chan<- struct{}) {
+		stopChan <- struct{}{}
+	}(state.snapshotBuilderStopChan)
+	return nil
+}
+
+// handleTerminateSnapshotBuilder is an unfortunate creation because of the way these things are
+// designed. That is state is not shared outside command server goroutine. So all of this had to be done
+func (sh *RealSnapshotHandler) handleTerminateSnapshotBuilder(state *snapshotHandlerState) error {
+	if !state.isRunning {
+		return nil
+	}
 	state.isRunning = false
 	return nil
 }
@@ -467,6 +492,7 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 			curSnapshotIndex := sh.GetCurrentSnapshotIndex()
 			if curSnapshotIndex == curCommittedIndex {
 				stopSnapshotBuilder = true
+				continue
 			}
 			nextIndex := curSnapshotIndex + 1
 			if err := sh.applyEntryToSnapshot(epoch, nextIndex); err != nil {
@@ -476,26 +502,19 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 					logfield.Event:       "APPLY",
 				}).Errorf("unable to apply entry")
 				stopSnapshotBuilder = true
-			} else {
-				err := sh.SetCurrentSnapshotIndex(nextIndex)
-				if err != nil {
-					logrus.WithFields(logrus.Fields{
-						logfield.ErrorReason: err.Error(),
-						logfield.Component:   snapshotHandler,
-						logfield.Event:       "SET-CURRENT-SNAPIDX",
-					}).Errorf("error while setting snapshot index to %d", nextIndex)
-					stopSnapshotBuilder = true
-				}
+				continue
+			}
+			if err := sh.SetCurrentSnapshotIndex(nextIndex); err != nil {
+				logrus.WithFields(logrus.Fields{
+					logfield.ErrorReason: err.Error(),
+					logfield.Component:   snapshotHandler,
+					logfield.Event:       "SET-CURRENT-SNAPIDX",
+				}).Errorf("error while setting snapshot index to %d", nextIndex)
+				stopSnapshotBuilder = true
 			}
 		}
 	}
-	if err := sh.StopSnapshotBuilder(); err != nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.ErrorReason: err.Error(),
-			logfield.Component:   snapshotHandler,
-			logfield.Event:       "STOP-BUILDER",
-		}).Errorf("error while stopping snapshot builder")
-	}
+	sh.terminateSnapshotBuilder()
 }
 
 // applyEntryToSnapshot fetches the snapshot entry corresponding to the given
@@ -740,7 +759,17 @@ func (sh *RealSnapshotHandler) handleSetCurrentSnapshotIndex(state *snapshotHand
 	if statusErr := sh.checkOperationalStatus(state); statusErr != nil {
 		return statusErr
 	}
+	beforeUpdateIndex := state.SnapshotMetadata.Index
 	state.SnapshotMetadata.Index = cmd.index
+	if persistErr := sh.SnapshotMetadataPersistence.PersistMetadata(&state.SnapshotMetadata); persistErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: persistErr.Error(),
+			logfield.Component:   snapshotHandler,
+			logfield.Event:       "PERSIST",
+		}).Errorf("error while persisting snapshot metadata")
+		state.SnapshotMetadata.Index = beforeUpdateIndex
+		return persistErr
+	}
 	return nil
 }
 
@@ -767,7 +796,7 @@ func (sh *RealSnapshotHandler) checkEpoch(lowerBound, upperBound, given uint64, 
 // checkEpochLowerBound checks if the given epoch satisfies the lower bound
 // If it does not then error is returned
 func (sh *RealSnapshotHandler) checkEpochLowerBound(bound, given uint64, includeEnd bool) *InvalidEpochError {
-	if (includeEnd && given < bound) || given <= bound {
+	if (includeEnd && given < bound) || (!includeEnd && given <= bound) {
 		return &InvalidEpochError{StrictLowerBound: bound}
 	}
 	return nil
@@ -776,7 +805,7 @@ func (sh *RealSnapshotHandler) checkEpochLowerBound(bound, given uint64, include
 // checkEpochUpperBound checks if the given epoch satisfies the upper bound.
 // If it does not error is returned
 func (sh *RealSnapshotHandler) checkEpochUpperBound(bound, given uint64, includeEnd bool) *InvalidEpochError {
-	if (includeEnd && given > bound) || given >= bound {
+	if (includeEnd && given > bound) || (!includeEnd && given >= bound) {
 		return &InvalidEpochError{StrictUpperBound: bound}
 	}
 	return nil
