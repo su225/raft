@@ -70,10 +70,6 @@ func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
 	logStartIndex := uint64(0)
 
 	if kvErr == nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.Component: dataStore,
-			logfield.Event:     "SNAPSHOT-LOOKUP",
-		}).Debugf("found value: %s in snapshot", value)
 		kvStore[key] = value
 		logStartIndex = curSnapshotIndex + 1
 	}
