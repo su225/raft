@@ -82,20 +82,15 @@ type deleteEpoch struct {
 	errorChan chan error
 }
 
-type getCurrentEpoch struct {
+type getSnapshotMetadata struct {
 	snapshotHandlerCommand
-	replyChan chan uint64
+	replyChan chan SnapshotMetadata
 }
 
 type setCurrentEpoch struct {
 	snapshotHandlerCommand
 	epoch     uint64
 	errorChan chan error
-}
-
-type getCurrentSnapshotIndex struct {
-	snapshotHandlerCommand
-	replyChan chan uint64
 }
 
 type setCurrentSnapshotIndex struct {

@@ -25,6 +25,7 @@ type RaftKeyValueStore struct {
 	replication.EntryReplicationController
 	state.RaftStateManager
 	log.WriteAheadLogManager
+	log.SnapshotHandler
 }
 
 // NewRaftKeyValueStore creates a new instance of Raft
@@ -33,11 +34,13 @@ func NewRaftKeyValueStore(
 	replicationCtrl replication.EntryReplicationController,
 	raftStateManager state.RaftStateManager,
 	writeAheadLogMgr log.WriteAheadLogManager,
+	snapshotHandler log.SnapshotHandler,
 ) *RaftKeyValueStore {
 	return &RaftKeyValueStore{
 		EntryReplicationController: replicationCtrl,
 		RaftStateManager:           raftStateManager,
 		WriteAheadLogManager:       writeAheadLogMgr,
+		SnapshotHandler:            snapshotHandler,
 	}
 }
 
@@ -55,11 +58,27 @@ func (ds *RaftKeyValueStore) PutData(key string, value string) error {
 // GetData returns the data for the given key-value pair if it
 // exists or an error otherwise.
 func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
-	// slow and dumb version of get-data
-	// TODO: Implement snapshot feature
+	ds.SnapshotHandler.Freeze()
+	defer ds.SnapshotHandler.Unfreeze()
+
+	curSnapshotMetadata := ds.SnapshotHandler.GetSnapshotMetadata()
+	curEpoch := curSnapshotMetadata.Epoch
+	curSnapshotIndex := curSnapshotMetadata.Index
+
 	kvStore := make(map[string]string)
+	value, kvErr := ds.SnapshotHandler.GetKeyValuePair(curEpoch, key)
+	logStartIndex := uint64(0)
+
+	if kvErr == nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: dataStore,
+			logfield.Event:     "SNAPSHOT-LOOKUP",
+		}).Debugf("found value: %s in snapshot", value)
+		kvStore[key] = value
+		logStartIndex = curSnapshotIndex + 1
+	}
 	metadata, _ := ds.WriteAheadLogManager.GetMetadata()
-	for i := uint64(1); i <= metadata.MaxCommittedIndex; i++ {
+	for i := logStartIndex; i <= metadata.MaxCommittedIndex; i++ {
 		entry, retrieveErr := ds.WriteAheadLogManager.GetEntry(i)
 		if retrieveErr != nil {
 			return "", retrieveErr
@@ -70,6 +89,9 @@ func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
 		case *log.DeleteEntry:
 			delete(kvStore, e.Key)
 		}
+	}
+	if _, present := kvStore[key]; !present {
+		return "", &KeyNotFoundError{Key: key}
 	}
 	return kvStore[key], nil
 }

@@ -219,6 +219,7 @@ func NewContext(config *Config) *Context {
 		replicationController,
 		raftStateManager,
 		writeAheadLogManager,
+		snapshotHandler,
 	)
 
 	apiServer := rest.NewAPIServer(

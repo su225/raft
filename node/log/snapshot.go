@@ -68,24 +68,20 @@ type SnapshotHandler interface {
 	// This operation needs component to be unfrozen.
 	DeleteEpoch(epochID uint64) error
 
-	// GetCurrentEpoch returns the current epoch. This works even
-	// when the component is frozen (since it is read-only)
-	GetCurrentEpoch() (epochID uint64)
-
 	// SetCurrentEpoch sets the current epoch. The epoch ID must be
 	// be monotonically increasing. The given epochID must be STRICTLY
 	// GREATER THAN the current epoch. Any error during the process is
 	// returned. This needs component to be unfrozen
 	SetCurrentEpoch(epochID uint64) (err error)
 
-	// GetCurrentSnapshotIndex gets the current snapshot index. This
-	// operation works even when the component is frozen.
-	GetCurrentSnapshotIndex() uint64
-
 	// SetCurrentSnapshotIndex sets the current snapshot and persists
 	// it to disk. If there is any error during the operation then
 	// it is returned
 	SetCurrentSnapshotIndex(index uint64) error
+
+	// GetSnapshotMetadata returns the snapshot metadata containing
+	// current snapshot index and current epoch
+	GetSnapshotMetadata() SnapshotMetadata
 }
 
 const snapshotHandler = "SNAPSHOT"
@@ -254,13 +250,6 @@ func (sh *RealSnapshotHandler) DeleteEpoch(epochID uint64) error {
 	return <-errorChan
 }
 
-// GetCurrentEpoch returns the current epoch
-func (sh *RealSnapshotHandler) GetCurrentEpoch() uint64 {
-	replyChan := make(chan uint64)
-	sh.commandChan <- &getCurrentEpoch{replyChan: replyChan}
-	return <-replyChan
-}
-
 // SetCurrentEpoch switches the current epoch. The epoch must be monotonically increasing.
 // So epochID must be greater than or equal to current epoch.
 func (sh *RealSnapshotHandler) SetCurrentEpoch(epochID uint64) error {
@@ -272,11 +261,10 @@ func (sh *RealSnapshotHandler) SetCurrentEpoch(epochID uint64) error {
 	return <-errorChan
 }
 
-// GetCurrentSnapshotIndex returns the current snapshot index. This must ALWAYS be
-// less than or equal to the committed index of the log
-func (sh *RealSnapshotHandler) GetCurrentSnapshotIndex() uint64 {
-	replyChan := make(chan uint64)
-	sh.commandChan <- &getCurrentSnapshotIndex{replyChan: replyChan}
+// GetSnapshotMetadata returns current snapshot metadata.
+func (sh *RealSnapshotHandler) GetSnapshotMetadata() SnapshotMetadata {
+	replyChan := make(chan SnapshotMetadata)
+	sh.commandChan <- &getSnapshotMetadata{replyChan: replyChan}
 	return <-replyChan
 }
 
@@ -350,13 +338,10 @@ func (sh *RealSnapshotHandler) loop() {
 		case *deleteEpoch:
 			c.errorChan <- sh.handleDeleteEpoch(state, c)
 
-		case *getCurrentEpoch:
-			c.replyChan <- sh.handleGetCurrentEpoch(state)
+		case *getSnapshotMetadata:
+			c.replyChan <- sh.handleGetSnapshotMetadata(state)
 		case *setCurrentEpoch:
 			c.errorChan <- sh.handleSetCurrentEpoch(state, c)
-
-		case *getCurrentSnapshotIndex:
-			c.replyChan <- sh.handleGetCurrentSnapshotIndex(state)
 		case *setCurrentSnapshotIndex:
 			c.errorChan <- sh.handleSetCurrentSnapshotIndex(state, c)
 		}
@@ -486,10 +471,11 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 		case <-stopSignal:
 			stopSnapshotBuilder = true
 		default:
-			epoch := sh.GetCurrentEpoch()
+			snapshotMetadata := sh.GetSnapshotMetadata()
+			epoch := snapshotMetadata.Epoch
+			curSnapshotIndex := snapshotMetadata.Index
 			metadata, _ := sh.parentWALog.GetMetadata()
 			curCommittedIndex := metadata.MaxCommittedIndex
-			curSnapshotIndex := sh.GetCurrentSnapshotIndex()
 			if curSnapshotIndex == curCommittedIndex {
 				stopSnapshotBuilder = true
 				continue
@@ -705,15 +691,6 @@ func (sh *RealSnapshotHandler) handleDeleteEpoch(state *snapshotHandlerState, cm
 	return nil
 }
 
-// handleGetCurrentEpoch returns the current epoch. If the component is not started or
-// is already destroyed then 0 (ZERO) is returned
-func (sh *RealSnapshotHandler) handleGetCurrentEpoch(state *snapshotHandlerState) uint64 {
-	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
-		return 0
-	}
-	return state.SnapshotMetadata.Epoch
-}
-
 // handleSetCurrentEpoch sets the current epoch provided the component is operational.
 // If the new epoch is less than or equal to given epoch then error is returned
 func (sh *RealSnapshotHandler) handleSetCurrentEpoch(state *snapshotHandlerState, cmd *setCurrentEpoch) error {
@@ -743,15 +720,6 @@ func (sh *RealSnapshotHandler) handleSetCurrentEpoch(state *snapshotHandlerState
 	return nil
 }
 
-// handleGetCurrentSnapshotIndex gets the current snapshot index. If the component is not operational
-// (like not started or already destroyed) then it returns 0. Index can be read when frozen
-func (sh *RealSnapshotHandler) handleGetCurrentSnapshotIndex(state *snapshotHandlerState) uint64 {
-	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
-		return 0
-	}
-	return state.SnapshotMetadata.Index
-}
-
 // handleSetCurrentSnapshotIndex sets the current snapshot index. If the component is not operational
 // then it returns an error complaining the same. The component must be in unfrozen state for this to
 // work otherwise it is an error
@@ -771,6 +739,13 @@ func (sh *RealSnapshotHandler) handleSetCurrentSnapshotIndex(state *snapshotHand
 		return persistErr
 	}
 	return nil
+}
+
+func (sh *RealSnapshotHandler) handleGetSnapshotMetadata(state *snapshotHandlerState) SnapshotMetadata {
+	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
+		return SnapshotMetadata{Index: 0, Epoch: 0}
+	}
+	return state.SnapshotMetadata
 }
 
 // checkEpoch checks if the given epoch satisfies the upper and lower bounds. If one of the
