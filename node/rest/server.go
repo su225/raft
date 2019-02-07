@@ -207,11 +207,12 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	value, retrieveErr := s.DataStore.GetData(key)
 	if retrieveErr != nil {
-		// TODO: Examine the type of retrieveErr and write
-		// responses accordingly. If the error is due to the
-		// fact that the given key doesn't exist then it must
-		// 404 - StatusNotFound instead of 500 - StatusInternalServerError
-		w.WriteHeader(http.StatusInternalServerError)
+		if s.isKeyNotFoundError(retrieveErr) {
+			w.WriteHeader(http.StatusNotFound)
+
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		return
 	}
 	kvPair := data.KVPair{Key: key, Value: value}
@@ -227,6 +228,11 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write(marshaledKVPair)
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *APIServer) isKeyNotFoundError(err error) bool {
+	_, ok := err.(*datastore.KeyNotFoundError)
+	return ok
 }
 
 // handleDeleteRequest handles the delete request
