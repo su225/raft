@@ -43,6 +43,17 @@ func (ep *InMemoryEntryPersistence) RetrieveEntry(index uint64) (Entry, error) {
 	}
 }
 
+// DeleteEntry deletes the given entry if ShouldSucceed is true, error otherwise
+func (ep *InMemoryEntryPersistence) DeleteEntry(index uint64) error {
+	if !ep.ShouldSucceed {
+		return errPersistence
+	}
+	if _, present := ep.Entries[index]; present {
+		delete(ep.Entries, index)
+	}
+	return nil
+}
+
 // InMemoryMetadataPersistence keeps the metadata in-memory. This
 // must be used only for testing purposes
 type InMemoryMetadataPersistence struct {

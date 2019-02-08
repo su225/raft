@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 )
 
 // EntryPersistence defines the operations that must be
@@ -16,6 +17,10 @@ type EntryPersistence interface {
 	// RetrieveEntry retrieves the entry at the given index. If
 	// the entry does not exist then error is returned.
 	RetrieveEntry(index uint64) (entry Entry, err error)
+
+	// DeleteEntry deletes the entry at the given index. If the
+	// entry does not exist then error is returned
+	DeleteEntry(index uint64) error
 }
 
 // MetadataPersistence defines the operations that must be
@@ -77,6 +82,12 @@ func (ep *FileBasedEntryPersistence) RetrieveEntry(index uint64) (Entry, error) 
 	}
 	inMemoryEntry := ep.getEntry(&entry)
 	return inMemoryEntry, nil
+}
+
+// DeleteEntry deletes the entry with the given index from the log
+func (ep *FileBasedEntryPersistence) DeleteEntry(index uint64) error {
+	entryFilePath := ep.getEntryFilePath(index)
+	return os.Remove(entryFilePath)
 }
 
 // persistableEntry is the format in which an entry resides on disk
