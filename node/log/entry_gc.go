@@ -49,6 +49,7 @@ func NewRealEntryGarbageCollector(
 	return &RealEntryGarbageCollector{
 		SnapshotHandler:  snapshotHandler,
 		EntryPersistence: entryPersistence,
+		commandChannel:   make(chan entryGCCommand),
 	}
 }
 

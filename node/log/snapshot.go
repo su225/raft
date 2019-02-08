@@ -101,6 +101,10 @@ type RealSnapshotHandler struct {
 	SnapshotPersistence
 	SnapshotMetadataPersistence
 
+	// Garbage collectors to clean things up once
+	// snapshot is taken
+	EntryGarbageCollector
+
 	// Channel to send command to command handler
 	commandChan chan snapshotHandlerCommand
 }
@@ -112,11 +116,13 @@ func NewRealSnapshotHandler(
 	parentWALog WriteAheadLogManager,
 	snapPersistence SnapshotPersistence,
 	snapMetaPersistence SnapshotMetadataPersistence,
+	entryGC EntryGarbageCollector,
 ) *RealSnapshotHandler {
 	return &RealSnapshotHandler{
 		parentWALog:                 parentWALog,
 		SnapshotPersistence:         snapPersistence,
 		SnapshotMetadataPersistence: snapMetaPersistence,
+		EntryGarbageCollector:       entryGC,
 		commandChan:                 make(chan snapshotHandlerCommand),
 	}
 }
@@ -353,6 +359,20 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerStart(state *snapshotHandler
 	if state.isDestroyed {
 		return errSnapshotHandlerDestroyed
 	}
+	go func() {
+		if err := sh.EntryGarbageCollector.Start(); err != nil {
+			logrus.WithFields(logrus.Fields{
+				logfield.ErrorReason: err.Error(),
+				logfield.Component:   snapshotHandler,
+				logfield.Event:       "START-EGC",
+			}).Errorf("error while starting entry garbage collector")
+			return
+		}
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: snapshotHandler,
+			logfield.Event:     "START-EGC",
+		}).Infof("started entry garbage collector")
+	}()
 	state.isStarted = true
 	return nil
 }
@@ -366,6 +386,19 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerDestroy(state *snapshotHandl
 	if sh.isFrozen(state) {
 		return errSnapshotHandlerFrozen
 	}
+	go func() {
+		if err := sh.EntryGarbageCollector.Destroy(); err != nil {
+			logrus.WithFields(logrus.Fields{
+				logfield.ErrorReason: err.Error(),
+				logfield.Component:   snapshotHandler,
+				logfield.Event:       "DESTROY-EGC",
+			}).Errorf("error while destroying entry garbage collector")
+		}
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: snapshotHandler,
+			logfield.Event:     "DESTROY-EGC",
+		}).Infof("destroyed entry garbage collector")
+	}()
 	sh.handleStopSnapshotBuilder(state)
 	state.isDestroyed = true
 	return nil
@@ -498,6 +531,7 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 				}).Errorf("error while setting snapshot index to %d", nextIndex)
 				stopSnapshotBuilder = true
 			}
+			go sh.EntryGarbageCollector.Resume()
 		}
 	}
 	sh.terminateSnapshotBuilder()
