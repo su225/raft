@@ -137,7 +137,11 @@ type Context struct {
 
 	// EntryGarbageCollector is responsible for cleaning up entries
 	// once their snapshot is taken
-	log.EntryGarbageCollector
+	EntryGarbageCollector log.GarbageCollector
+
+	// SnapshotGarbageCollector is responsible for cleaning up snapshots
+	// which are not longer used. 
+	SnapshotGarbageCollector log.GarbageCollector
 }
 
 // NewContext creates a new node context and returns it

@@ -6,15 +6,6 @@ import (
 	"github.com/su225/raft/node/common"
 )
 
-// EntryGarbageCollector is responsible for cleaning
-// up the entries which are already part of some snapshot
-// since they are no longer required
-type EntryGarbageCollector interface {
-	common.ComponentLifecycle
-	common.Pausable
-	common.Freezable
-}
-
 var entryGC = "EGC"
 var entryGCNotStartedErr = &common.ComponentHasNotStartedError{ComponentName: entryGC}
 var entryGCIsDestroyedErr = &common.ComponentIsDestroyedError{ComponentName: entryGC}
@@ -35,7 +26,7 @@ type RealEntryGarbageCollector struct {
 
 	// commandChannel is used to receive commands
 	// from other components
-	commandChannel chan entryGCCommand
+	commandChannel chan gcCommand
 }
 
 // NewRealEntryGarbageCollector creates a new instance of
@@ -49,7 +40,7 @@ func NewRealEntryGarbageCollector(
 	return &RealEntryGarbageCollector{
 		SnapshotHandler:  snapshotHandler,
 		EntryPersistence: entryPersistence,
-		commandChannel:   make(chan entryGCCommand),
+		commandChannel:   make(chan gcCommand),
 	}
 }
 
@@ -94,7 +85,7 @@ func (egc *RealEntryGarbageCollector) Unfreeze() error {
 // If there is any error then it is returned
 func (egc *RealEntryGarbageCollector) sendLifecycleCommand(cmd commandType) error {
 	errorChan := make(chan error)
-	egc.commandChannel <- entryGCCommand{cmd: cmd, errChan: errorChan}
+	egc.commandChannel <- gcCommand{cmd: cmd, errChan: errorChan}
 	return <-errorChan
 }
 
