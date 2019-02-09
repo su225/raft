@@ -242,6 +242,7 @@ func (sh *RealSnapshotHandler) ForEachKeyValuePair(epoch uint64, transformFunc f
 	sh.commandChan <- &forEachKeyValuePair{
 		epoch:         epoch,
 		transformFunc: transformFunc,
+		errorChan:     errorChan,
 	}
 	return <-errorChan
 }
@@ -364,6 +365,9 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerStart(state *snapshotHandler
 	if state.isDestroyed {
 		return errSnapshotHandlerDestroyed
 	}
+	if state.isStarted {
+		return nil
+	}
 	go func() {
 		if err := sh.EntryGarbageCollector.Start(); err != nil {
 			logrus.WithFields(logrus.Fields{
@@ -379,6 +383,10 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerStart(state *snapshotHandler
 		}).Infof("started entry garbage collector")
 	}()
 	state.isStarted = true
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: snapshotHandler,
+		logfield.Event:     "START-SNAPSHOT",
+	}).Debugf("started snapshot handler")
 	return nil
 }
 
@@ -406,6 +414,10 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerDestroy(state *snapshotHandl
 	}()
 	sh.handleStopSnapshotBuilder(state)
 	state.isDestroyed = true
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: snapshotHandler,
+		logfield.Event:     "DESTROY-SNAPSHOT",
+	}).Debugf("destroyed snapshot handler")
 	return nil
 }
 
@@ -539,7 +551,6 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 					Index:  nextIndex,
 				},
 			}
-			logrus.Debugf("snapshotMeta=%v", snapshotMetadata)
 			if err := sh.SetSnapshotMetadata(snapshotMetadata); err != nil {
 				logrus.WithFields(logrus.Fields{
 					logfield.ErrorReason: err.Error(),
