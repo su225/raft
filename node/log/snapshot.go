@@ -439,6 +439,9 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerFreeze(state *snapshotHandle
 		return statusErr
 	}
 	state.freezeLevel++
+	if state.isRunning {
+		sh.handleStopSnapshotBuilder(state)
+	}
 	return nil
 }
 
