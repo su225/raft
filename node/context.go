@@ -219,6 +219,7 @@ func NewContext(config *Config) *Context {
 		writeAheadLogManager,
 		config.NodeID,
 		membershipManager,
+		snapshotHandler,
 	)
 
 	raftStateManager.RegisterSubscription(leaderElectionManager)

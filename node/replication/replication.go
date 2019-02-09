@@ -54,6 +54,10 @@ type RealEntryReplicationController struct {
 	// with given index.
 	log.WriteAheadLogManager
 
+	// SnapshotHandler is required to freeze/unfreeze snapshot
+	// during replication
+	log.SnapshotHandler
+
 	// CurrentNodeID and MembershipManager are required to
 	// know each member and send them entries
 	CurrentNodeID string
@@ -67,6 +71,7 @@ func NewRealEntryReplicationController(
 	writeAheadLogMgr log.WriteAheadLogManager,
 	currentNodeID string,
 	membershipMgr cluster.MembershipManager,
+	snapshotHandler log.SnapshotHandler,
 ) *RealEntryReplicationController {
 	return &RealEntryReplicationController{
 		chanSelectorMutex:    sync.RWMutex{},
@@ -74,6 +79,7 @@ func NewRealEntryReplicationController(
 		listenerChannel:      make(chan state.RaftStateManagerEvent),
 		RaftProtobufClient:   rpcClient,
 		WriteAheadLogManager: writeAheadLogMgr,
+		SnapshotHandler:      snapshotHandler,
 		CurrentNodeID:        currentNodeID,
 		MembershipManager:    membershipMgr,
 	}
@@ -333,6 +339,13 @@ func (r *RealEntryReplicationController) handleReplicateEntry(state *replication
 	if cmd.entryID.Index <= state.matchIndex {
 		return nil
 	}
+
+	// Freezing snapshot handler during replication also freezes
+	// entry garbage collector which means entries are not deleted
+	// thereby initiating unnecessary snapshot transfers
+	r.SnapshotHandler.Freeze()
+	defer r.SnapshotHandler.Unfreeze()
+
 	curTermID := cmd.entryID.TermID
 	curEntryIndex := cmd.entryID.Index
 	curReplicateIndex := curEntryIndex

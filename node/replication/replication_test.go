@@ -23,6 +23,7 @@ func TestReplicationMustBeSuccessfulIfReplicatedInMajorityAndCommittable(t *test
 		writeAheadLogMgr,
 		mock.SampleNodeID0,
 		membershipMgr,
+		log.GetDefaultMockSnapshotHandler(),
 	)
 	replicationCtrl.Start()
 	replicationErr := replicationCtrl.ReplicateEntry(
@@ -46,6 +47,7 @@ func TestReplicationMustBeFailureIfReplicationFailsInMajority(t *testing.T) {
 		writeAheadLogMgr,
 		mock.SampleNodeID0,
 		membershipMgr,
+		log.GetDefaultMockSnapshotHandler(),
 	)
 	replicationCtrl.Start()
 	replicationErr := replicationCtrl.ReplicateEntry(
@@ -69,6 +71,7 @@ func TestReplicationMustBeFailureIfCommittingFails(t *testing.T) {
 		writeAheadLogMgr,
 		mock.SampleNodeID0,
 		membershipMgr,
+		log.GetDefaultMockSnapshotHandler(),
 	)
 	replicationCtrl.Start()
 	replicationErr := replicationCtrl.ReplicateEntry(

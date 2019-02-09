@@ -21,6 +21,11 @@ func NewMockSnapshotHandler(
 	}
 }
 
+// GetDefaultMockSnapshotHandler creates mock snapshot handler with default settings
+func GetDefaultMockSnapshotHandler() *MockSnapshotHandler {
+	return NewMockSnapshotHandler(true, SnapshotMetadata{Epoch: 1, Index: 0})
+}
+
 var errSnapshotHandler = errors.New("snapshot handler error")
 
 // Start does nothing

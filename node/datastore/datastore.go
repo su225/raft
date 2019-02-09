@@ -66,7 +66,7 @@ func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
 	curSnapshotIndex := curSnapshotMetadata.Index
 
 	kvStore := make(map[string]string)
-	value, kvErr := ds.SnapshotHandler.GetKeyValuePair(curEpoch, key)
+	value, kvErr := ds.getKeyValuePairFromSnapshot(curEpoch, key)
 	logStartIndex := uint64(0)
 
 	if kvErr == nil {
@@ -90,6 +90,12 @@ func (ds *RaftKeyValueStore) GetData(key string) (string, error) {
 		return "", &KeyNotFoundError{Key: key}
 	}
 	return kvStore[key], nil
+}
+
+func (ds *RaftKeyValueStore) getKeyValuePairFromSnapshot(curEpoch uint64, key string) (string, error) {
+	ds.SnapshotHandler.Freeze()
+	defer ds.SnapshotHandler.Unfreeze()
+	return ds.SnapshotHandler.GetKeyValuePair(curEpoch, key)
 }
 
 // DeleteData deletes the key-value pair with the given key if

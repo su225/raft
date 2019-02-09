@@ -20,15 +20,11 @@ func getDefaultWriteAheadLogState() *writeAheadLogManagerState {
 	}
 }
 
-func getDefaultMockSnapshotHandler() *MockSnapshotHandler {
-	return NewMockSnapshotHandler(true, SnapshotMetadata{Epoch: 1, Index: 0})
-}
-
 func getWriteAheadLogManagerWithMockedPersistence(entrySucceeds, metaSucceeds bool) *WriteAheadLogManagerImpl {
 	return NewWriteAheadLogManagerImpl(
 		NewInMemoryEntryPersistence(entrySucceeds),
 		NewInMemoryMetadataPersistence(metaSucceeds),
-		getDefaultMockSnapshotHandler(),
+		GetDefaultMockSnapshotHandler(),
 	)
 }
 
@@ -225,7 +221,7 @@ func TestGetEntryReturnsEntryCorrectlyGivenValidIndex(t *testing.T) {
 	waLogState := getDefaultWriteAheadLogState()
 	entryPersistence := getEntryPersistenceWithDefaultEntries(true, waLogState.TailEntryID.Index)
 	metadataPersistence := NewInMemoryMetadataPersistence(true)
-	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, getDefaultMockSnapshotHandler())
+	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, GetDefaultMockSnapshotHandler())
 	cmd := &getEntry{index: 10}
 	reply := waLogManager.handleGetEntry(waLogState, cmd)
 	if reply == nil || reply.retrievalErr != nil {
@@ -245,7 +241,7 @@ func TestGetEntryReturnsErrorIfEntryPersistenceFails(t *testing.T) {
 	waLogState := getDefaultWriteAheadLogState()
 	entryPersistence := getEntryPersistenceWithDefaultEntries(false, waLogState.TailEntryID.Index)
 	metadataPersistence := NewInMemoryMetadataPersistence(true)
-	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, getDefaultMockSnapshotHandler())
+	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, GetDefaultMockSnapshotHandler())
 	cmd := &getEntry{index: 10}
 	reply := waLogManager.handleGetEntry(waLogState, cmd)
 	if reply == nil || reply.retrievalErr == nil {
@@ -257,7 +253,7 @@ func TestGetEntryReturnsErrorIfEntryWithGivenIndexIsNotFound(t *testing.T) {
 	waLogState := getDefaultWriteAheadLogState()
 	entryPersistence := getEntryPersistenceWithDefaultEntries(true, waLogState.TailEntryID.Index)
 	metadataPersistence := NewInMemoryMetadataPersistence(true)
-	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, getDefaultMockSnapshotHandler())
+	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, GetDefaultMockSnapshotHandler())
 	cmd := &getEntry{index: waLogState.TailEntryID.Index + 1000}
 	reply := waLogManager.handleGetEntry(waLogState, cmd)
 	if reply == nil || reply.retrievalErr == nil {
@@ -269,7 +265,7 @@ func TestGetEntryAlwaysReturnsSentinelForIndexZero(t *testing.T) {
 	waLogState := getDefaultWriteAheadLogState()
 	entryPersistence := getEntryPersistenceWithDefaultEntries(true, waLogState.TailEntryID.Index)
 	metadataPersistence := NewInMemoryMetadataPersistence(true)
-	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, getDefaultMockSnapshotHandler())
+	waLogManager := NewWriteAheadLogManagerImpl(entryPersistence, metadataPersistence, GetDefaultMockSnapshotHandler())
 	cmd := &getEntry{index: 0}
 	reply := waLogManager.handleGetEntry(waLogState, cmd)
 	if reply == nil || reply.retrievalErr != nil || !reflect.DeepEqual(reply.entry, &SentinelEntry{}) {
