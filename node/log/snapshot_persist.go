@@ -140,6 +140,9 @@ func (sp *SimpleFileBasedSnapshotPersistence) ForEachKey(epoch uint64, operation
 		if err != nil {
 			return err
 		}
+		if info.IsDir() {
+			return nil
+		}
 		kvPair, readErr := sp.getKVPairFromFile(path)
 		if readErr != nil {
 			return readErr
