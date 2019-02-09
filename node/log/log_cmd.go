@@ -40,6 +40,12 @@ type getMetadataReply struct {
 	retrievalErr error
 }
 
+type forceSetMetadata struct {
+	writeAheadLogManagerCommand
+	metadata WriteAheadLogMetadata
+	errChan  chan error
+}
+
 type appendEntry struct {
 	writeAheadLogManagerCommand
 	entry     Entry

@@ -104,6 +104,15 @@ func (w *MockWriteAheadLogManager) GetMetadata() (WriteAheadLogMetadata, error) 
 	return w.WriteAheadLogMetadata, nil
 }
 
+// ForceSetMetadata forcibly sets metadata
+func (w *MockWriteAheadLogManager) ForceSetMetadata(metadata WriteAheadLogMetadata) error {
+	if !w.ShouldSucceed {
+		return errWriteAheadLog
+	}
+	w.WriteAheadLogMetadata = metadata
+	return nil
+}
+
 // Start is a no-op
 func (w *MockWriteAheadLogManager) Start() error {
 	return nil

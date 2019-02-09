@@ -89,20 +89,12 @@ func (ms *MockSnapshotHandler) DeleteEpoch(epochID uint64) error {
 	return nil
 }
 
-// SetCurrentEpoch returns error if shouldSucceed is false, otherwise does nothing
-func (ms *MockSnapshotHandler) SetCurrentEpoch(epochID uint64) error {
+// SetSnapshotMetadata sets the snapshot metadata
+func (ms *MockSnapshotHandler) SetSnapshotMetadata(metadata SnapshotMetadata) error {
 	if !ms.ShouldSucceed {
 		return errSnapshotHandler
 	}
-	return nil
-}
-
-// SetCurrentSnapshotIndex returns error if shouldSucceed is false,
-// otherwise does nothing and returns nil for error
-func (ms *MockSnapshotHandler) SetCurrentSnapshotIndex(index uint64) error {
-	if !ms.ShouldSucceed {
-		return errSnapshotHandler
-	}
+	ms.SnapshotMetadata = metadata
 	return nil
 }
 

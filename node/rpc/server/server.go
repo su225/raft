@@ -23,6 +23,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/sirupsen/logrus"
@@ -60,6 +61,10 @@ type RealRaftProtobufServer struct {
 	// LeaderElectionManager is needed to reset the election timeout
 	election.LeaderElectionManager
 
+	// SnapshotHandler is required to create new epoch and build
+	// new snapshot when install snapshot is received
+	log.SnapshotHandler
+
 	// commandChannel is used to provide various commands. This
 	// is where operations actually happen
 	commandChannel chan protocolServerCommand
@@ -76,12 +81,14 @@ func NewRealRaftProtobufServer(
 	voter *state.Voter,
 	raftStateMgr state.RaftStateManager,
 	electionMgr election.LeaderElectionManager,
+	snapshotHandler log.SnapshotHandler,
 ) *RealRaftProtobufServer {
 	return &RealRaftProtobufServer{
 		RPCPort:               rpcPort,
 		Voter:                 voter,
 		RaftStateManager:      raftStateMgr,
 		LeaderElectionManager: electionMgr,
+		SnapshotHandler:       snapshotHandler,
 		commandChannel:        make(chan protocolServerCommand),
 	}
 }
@@ -154,7 +161,91 @@ func (rpcs *RealRaftProtobufServer) Heartbeat(context context.Context, request *
 // the write-ahead log can be fast-forwarded and older entries can be cleaned up. The
 // snapshot transfer must be atomic. In other words, on failure, snapshot being
 // transferred must be discarded.
-func (rpcs *RealRaftProtobufServer) InstallSnapshot(raftpb.RaftProtocol_InstallSnapshotServer) error {
+func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_InstallSnapshotServer) error {
+	rpcs.SnapshotHandler.Freeze()
+	defer rpcs.SnapshotHandler.Unfreeze()
+
+	snapshotMetadata := rpcs.SnapshotHandler.GetSnapshotMetadata()
+	maxNumberOfAttempts, nextEpoch := uint64(3), snapshotMetadata.Epoch+1
+	for attempt := uint64(1); attempt <= maxNumberOfAttempts; attempt++ {
+		nextEpoch = snapshotMetadata.Epoch + attempt
+		if err := rpcs.SnapshotHandler.CreateEpoch(nextEpoch); err != nil {
+			logrus.WithFields(logrus.Fields{
+				ErrorReason: err.Error(),
+				Component:   rpcServer,
+				Event:       "CREATE-EPOCH",
+			}).Errorf("error while creating epoch %d", nextEpoch)
+			if attempt == maxNumberOfAttempts {
+				return err
+			}
+			continue
+		}
+		break
+	}
+	for {
+		kvPair, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			logrus.WithFields(logrus.Fields{
+				ErrorReason: err.Error(),
+				Component:   rpcServer,
+				Event:       "RECV-KV",
+			}).Errorf("error while receiving key-value pair")
+			return err
+		}
+		// Once something is received, you must determine if it is a key-value
+		// pair or the write-ahead log metadata and handle appropriately.
+		switch sd := kvPair.GetData().(type) {
+		case *raftpb.SnapshotData_KvData:
+			logrus.WithFields(logrus.Fields{
+				Component: rpcServer,
+				Event:     "RECV-KV",
+			}).Debugf("received %s -> %s", sd.KvData.GetKey(), sd.KvData.GetValue())
+			if err := rpcs.SnapshotHandler.AddKeyValuePair(nextEpoch, sd.KvData.GetKey(), sd.KvData.GetValue()); err != nil {
+				logrus.WithFields(logrus.Fields{
+					ErrorReason: err.Error(),
+					Component:   rpcServer,
+					Event:       "PERSIST-KV",
+				}).Errorf("error while persisting key-value pair in epoch %d", nextEpoch)
+				return err
+			}
+		case *raftpb.SnapshotData_Metadata:
+			index, termID := sd.Metadata.GetIndex(), sd.Metadata.GetTermId()
+			writeAheadLogMetadata := log.WriteAheadLogMetadata{
+				TailEntryID: log.EntryID{
+					TermID: termID,
+					Index:  index,
+				},
+				MaxCommittedIndex: index,
+			}
+			if err := rpcs.WriteAheadLogManager.ForceSetMetadata(writeAheadLogMetadata); err != nil {
+				logrus.WithFields(logrus.Fields{
+					ErrorReason: err.Error(),
+					Component:   rpcServer,
+					Event:       "SET-METADATA",
+				}).Errorf("error while setting metadata")
+				return err
+			}
+			snapshotMetadata := log.SnapshotMetadata{
+				Index: index,
+				Epoch: nextEpoch,
+			}
+			if err := rpcs.SnapshotHandler.SetSnapshotMetadata(snapshotMetadata); err != nil {
+				logrus.WithFields(logrus.Fields{
+					ErrorReason: err.Error(),
+					Component:   rpcServer,
+					Event:       "SET-SNAPSHOT-METADATA",
+				}).Errorf("error while setting snapshot metadata. Not fatal..")
+			}
+			currentRaftState := rpcs.RaftStateManager.GetRaftState()
+			stream.SendAndClose(&raftpb.InstallSnapshotReply{
+				SenderInfo:        rpcs.getProtobufHeader(&currentRaftState),
+				LatestCommitIndex: writeAheadLogMetadata.MaxCommittedIndex,
+			})
+		}
+	}
 	return nil
 }
 

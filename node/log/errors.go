@@ -24,6 +24,14 @@ type EntryIDInvariantViolationError struct {
 	Message string
 }
 
+// CommittedIndexMonotonicityViolation is returned during forcibly
+// setting metadata where committed index to be set is much behind
+// the current commit index
+type CommittedIndexMonotonicityViolation struct {
+	CurCommittedIndex       uint64
+	AttemptedCommittedIndex uint64
+}
+
 func (e *CommittedIndexTooFarAheadError) Error() string {
 	return fmt.Sprintf("given commit index %d is ahead of the end %d",
 		e.UpperLimit, e.GivenCommitIndex)
@@ -38,6 +46,11 @@ func (e *EntryIDInvariantViolationError) Error() string {
 	return fmt.Sprintf("entry ID invariant violation: %s", e.Message)
 }
 
+func (e *CommittedIndexMonotonicityViolation) Error() string {
+	return fmt.Sprintf("commit index must be monotonically increasing (%d < %d)",
+		e.AttemptedCommittedIndex, e.CurCommittedIndex)
+}
+
 // InvalidEpochError is returned when the valid epoch bounds
 // for the operation are violated
 type InvalidEpochError struct {
@@ -45,7 +58,20 @@ type InvalidEpochError struct {
 	StrictUpperBound uint64
 }
 
+// SnapshotMetadataMonotonicityViolationError is returned when
+// the metadata to be set either has lower epoch or same epoch
+// with lower index
+type SnapshotMetadataMonotonicityViolationError struct {
+	BeforeMetadata SnapshotMetadata
+	AfterMetadata  SnapshotMetadata
+}
+
 func (e *InvalidEpochError) Error() string {
 	return fmt.Sprintf("epoch e must satisfy [%d < e < %d]",
 		e.StrictLowerBound, e.StrictUpperBound)
+}
+
+func (e *SnapshotMetadataMonotonicityViolationError) Error() string {
+	return fmt.Sprintf("snapshot metadata monotonicity error. Before=%v, After=%v",
+		e.BeforeMetadata, e.AfterMetadata)
 }

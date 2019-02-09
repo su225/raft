@@ -209,6 +209,7 @@ func NewContext(config *Config) *Context {
 		voter,
 		raftStateManager,
 		leaderElectionManager,
+		snapshotHandler,
 	)
 	leaderHeartbeatController := heartbeat.NewRealLeaderHeartbeatController(
 		config.NodeID,

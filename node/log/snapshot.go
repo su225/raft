@@ -68,16 +68,11 @@ type SnapshotHandler interface {
 	// This operation needs component to be unfrozen.
 	DeleteEpoch(epochID uint64) error
 
-	// SetCurrentEpoch sets the current epoch. The epoch ID must be
-	// be monotonically increasing. The given epochID must be STRICTLY
-	// GREATER THAN the current epoch. Any error during the process is
-	// returned. This needs component to be unfrozen
-	SetCurrentEpoch(epochID uint64) (err error)
-
-	// SetCurrentSnapshotIndex sets the current snapshot and persists
-	// it to disk. If there is any error during the operation then
-	// it is returned
-	SetCurrentSnapshotIndex(index uint64) error
+	// SetSnapshotMetadata sets the snapshot metadata. Note that
+	// monotonicity must be preserved. That is, the epoch must be
+	// greater than current epoch or if the epoch is equal to the
+	// current epoch then snapshot index must be greater.
+	SetSnapshotMetadata(metadata SnapshotMetadata) error
 
 	// GetSnapshotMetadata returns the snapshot metadata containing
 	// current snapshot index and current epoch
@@ -103,7 +98,7 @@ type RealSnapshotHandler struct {
 
 	// Garbage collectors to clean things up once
 	// snapshot is taken
-	EntryGarbageCollector
+	EntryGarbageCollector GarbageCollector
 
 	// Channel to send command to command handler
 	commandChan chan snapshotHandlerCommand
@@ -116,7 +111,7 @@ func NewRealSnapshotHandler(
 	parentWALog WriteAheadLogManager,
 	snapPersistence SnapshotPersistence,
 	snapMetaPersistence SnapshotMetadataPersistence,
-	entryGC EntryGarbageCollector,
+	entryGC GarbageCollector,
 ) *RealSnapshotHandler {
 	return &RealSnapshotHandler{
 		parentWALog:                 parentWALog,
@@ -256,17 +251,6 @@ func (sh *RealSnapshotHandler) DeleteEpoch(epochID uint64) error {
 	return <-errorChan
 }
 
-// SetCurrentEpoch switches the current epoch. The epoch must be monotonically increasing.
-// So epochID must be greater than or equal to current epoch.
-func (sh *RealSnapshotHandler) SetCurrentEpoch(epochID uint64) error {
-	errorChan := make(chan error)
-	sh.commandChan <- &setCurrentEpoch{
-		epoch:     epochID,
-		errorChan: errorChan,
-	}
-	return <-errorChan
-}
-
 // GetSnapshotMetadata returns current snapshot metadata.
 func (sh *RealSnapshotHandler) GetSnapshotMetadata() SnapshotMetadata {
 	replyChan := make(chan SnapshotMetadata)
@@ -274,11 +258,12 @@ func (sh *RealSnapshotHandler) GetSnapshotMetadata() SnapshotMetadata {
 	return <-replyChan
 }
 
-// SetCurrentSnapshotIndex sets the current snapshot index to the given one
-func (sh *RealSnapshotHandler) SetCurrentSnapshotIndex(index uint64) error {
+// SetSnapshotMetadata sets the snapshot metadata subject to monotonicity conditions
+// If operation is not successful then error is returned
+func (sh *RealSnapshotHandler) SetSnapshotMetadata(metadata SnapshotMetadata) error {
 	errorChan := make(chan error)
-	sh.commandChan <- &setCurrentSnapshotIndex{
-		index:     index,
+	sh.commandChan <- &setSnapshotMetadata{
+		metadata:  metadata,
 		errorChan: errorChan,
 	}
 	return <-errorChan
@@ -346,10 +331,8 @@ func (sh *RealSnapshotHandler) loop() {
 
 		case *getSnapshotMetadata:
 			c.replyChan <- sh.handleGetSnapshotMetadata(state)
-		case *setCurrentEpoch:
-			c.errorChan <- sh.handleSetCurrentEpoch(state, c)
-		case *setCurrentSnapshotIndex:
-			c.errorChan <- sh.handleSetCurrentSnapshotIndex(state, c)
+		case *setSnapshotMetadata:
+			c.errorChan <- sh.handleSetSnapshotMetadata(state, c)
 		}
 	}
 }
@@ -526,7 +509,8 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 				stopSnapshotBuilder = true
 				continue
 			}
-			if err := sh.SetCurrentSnapshotIndex(nextIndex); err != nil {
+			snapshotMetadata = SnapshotMetadata{Index: nextIndex, Epoch: epoch}
+			if err := sh.SetSnapshotMetadata(snapshotMetadata); err != nil {
 				logrus.WithFields(logrus.Fields{
 					logfield.ErrorReason: err.Error(),
 					logfield.Component:   snapshotHandler,
@@ -728,61 +712,38 @@ func (sh *RealSnapshotHandler) handleDeleteEpoch(state *snapshotHandlerState, cm
 	return nil
 }
 
-// handleSetCurrentEpoch sets the current epoch provided the component is operational.
-// If the new epoch is less than or equal to given epoch then error is returned
-func (sh *RealSnapshotHandler) handleSetCurrentEpoch(state *snapshotHandlerState, cmd *setCurrentEpoch) error {
-	if statusErr := sh.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	epochBeforeUpdate := state.SnapshotMetadata.Epoch
-	if epochBoundErr := sh.checkEpochLowerBound(epochBeforeUpdate, cmd.epoch, false); epochBoundErr != nil {
-		return epochBoundErr
-	}
-	state.SnapshotMetadata.Epoch = cmd.epoch
-	persistErr := sh.SnapshotMetadataPersistence.PersistMetadata(&state.SnapshotMetadata)
-	if persistErr != nil {
-		state.SnapshotMetadata.Epoch = epochBeforeUpdate
-		logrus.WithFields(logrus.Fields{
-			logfield.ErrorReason: persistErr.Error(),
-			logfield.Component:   snapshotHandler,
-			logfield.Event:       "SET-EPOCH",
-		}).Errorf("error while persisting snapshot metadata for switch-epoch (%d -> %d)",
-			epochBeforeUpdate, cmd.epoch)
-		return persistErr
-	}
-	logrus.WithFields(logrus.Fields{
-		logfield.Component: snapshotHandler,
-		logfield.Event:     "SET-EPOCH",
-	}).Debugf("switched snapshot epoch: %d -> %d", epochBeforeUpdate, cmd.epoch)
-	return nil
-}
-
-// handleSetCurrentSnapshotIndex sets the current snapshot index. If the component is not operational
-// then it returns an error complaining the same. The component must be in unfrozen state for this to
-// work otherwise it is an error
-func (sh *RealSnapshotHandler) handleSetCurrentSnapshotIndex(state *snapshotHandlerState, cmd *setCurrentSnapshotIndex) error {
-	if statusErr := sh.checkOperationalStatus(state); statusErr != nil {
-		return statusErr
-	}
-	beforeUpdateIndex := state.SnapshotMetadata.Index
-	state.SnapshotMetadata.Index = cmd.index
-	if persistErr := sh.SnapshotMetadataPersistence.PersistMetadata(&state.SnapshotMetadata); persistErr != nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.ErrorReason: persistErr.Error(),
-			logfield.Component:   snapshotHandler,
-			logfield.Event:       "PERSIST",
-		}).Errorf("error while persisting snapshot metadata")
-		state.SnapshotMetadata.Index = beforeUpdateIndex
-		return persistErr
-	}
-	return nil
-}
-
 func (sh *RealSnapshotHandler) handleGetSnapshotMetadata(state *snapshotHandlerState) SnapshotMetadata {
 	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
 		return SnapshotMetadata{Index: 0, Epoch: 0}
 	}
 	return state.SnapshotMetadata
+}
+
+func (sh *RealSnapshotHandler) handleSetSnapshotMetadata(state *snapshotHandlerState, cmd *setSnapshotMetadata) error {
+	// snapshot metadata can be reset even when frozen.
+	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
+		return statusErr
+	}
+	sh.handleStopSnapshotBuilder(state)
+	curMetadata, nextMetadata := state.SnapshotMetadata, cmd.metadata
+	if curMetadata.Epoch > nextMetadata.Epoch ||
+		(curMetadata.Epoch == nextMetadata.Epoch &&
+			curMetadata.Index > nextMetadata.Index) {
+		return &SnapshotMetadataMonotonicityViolationError{
+			BeforeMetadata: curMetadata,
+			AfterMetadata:  nextMetadata,
+		}
+	}
+	if persistErr := sh.SnapshotMetadataPersistence.PersistMetadata(&nextMetadata); persistErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: persistErr.Error(),
+			logfield.Component:   snapshotHandler,
+			logfield.Event:       "SET-METADATA",
+		}).Errorf("error while persisting metadata %v", nextMetadata)
+		return persistErr
+	}
+	state.SnapshotMetadata = nextMetadata
+	return nil
 }
 
 // checkEpoch checks if the given epoch satisfies the upper and lower bounds. If one of the

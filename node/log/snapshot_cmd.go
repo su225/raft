@@ -87,14 +87,8 @@ type getSnapshotMetadata struct {
 	replyChan chan SnapshotMetadata
 }
 
-type setCurrentEpoch struct {
+type setSnapshotMetadata struct {
 	snapshotHandlerCommand
-	epoch     uint64
-	errorChan chan error
-}
-
-type setCurrentSnapshotIndex struct {
-	snapshotHandlerCommand
-	index     uint64
+	metadata  SnapshotMetadata
 	errorChan chan error
 }

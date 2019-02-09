@@ -78,6 +78,10 @@ type WriteAheadLogManager interface {
 	// the index returned must not be considered
 	GetMetadata() (metadata WriteAheadLogMetadata, err error)
 
+	// ForceSetMetadata forcibly sets the metadata to the given metadata. This
+	// is usually used during snapshot transfer, but must not be used otherwise
+	ForceSetMetadata(metadata WriteAheadLogMetadata) error
+
 	// ComponentLifecycle must be implemented so that starting and destroying
 	// the component can be done gracefully. For instance, if there is a write
 	// going on when destruction command is issued then it can wait till the
@@ -166,6 +170,18 @@ func (wal *WriteAheadLogManagerImpl) GetMetadata() (WriteAheadLogMetadata, error
 	return reply.metadata, reply.retrievalErr
 }
 
+// ForceSetMetadata forcibly sets the metadata to the given metadata. But one cannot break
+// the monotonicity of commit index so that committed entries cannot be uncommitted. But
+// it is possible to advance commit index
+func (wal *WriteAheadLogManagerImpl) ForceSetMetadata(metadata WriteAheadLogMetadata) error {
+	errChan := make(chan error)
+	wal.commandChannel <- &forceSetMetadata{
+		metadata: metadata,
+		errChan:  errChan,
+	}
+	return <-errChan
+}
+
 // AppendEntry appends the entry to the log, persists the entry and metadata after the
 // update and returns the updated tail entry ID. In case there is an error during the
 // operation, then it is returned and metadata is untouched. This is not idempotent
@@ -251,6 +267,8 @@ func (wal *WriteAheadLogManagerImpl) loop() {
 			c.replyChan <- wal.handleUpdateMaxCommittedIndex(state, c)
 		case *getMetadata:
 			c.replyChan <- wal.handleGetMetadata(state, c)
+		case *forceSetMetadata:
+			c.errChan <- wal.handleForceSetMetadata(state, c)
 		case *appendEntry:
 			c.replyChan <- wal.handleAppendEntry(state, c)
 		case *writeEntry:
@@ -374,6 +392,28 @@ func (wal *WriteAheadLogManagerImpl) handleGetMetadata(state *writeAheadLogManag
 		metadata:     state.WriteAheadLogMetadata,
 		retrievalErr: statusErr,
 	}
+}
+
+func (wal *WriteAheadLogManagerImpl) handleForceSetMetadata(state *writeAheadLogManagerState, cmd *forceSetMetadata) error {
+	if err := wal.checkOperationalStatus(state); err != nil {
+		return err
+	}
+	if cmd.metadata.MaxCommittedIndex < state.WriteAheadLogMetadata.MaxCommittedIndex {
+		return &CommittedIndexMonotonicityViolation{
+			CurCommittedIndex:       state.WriteAheadLogMetadata.MaxCommittedIndex,
+			AttemptedCommittedIndex: cmd.metadata.MaxCommittedIndex,
+		}
+	}
+	if persistErr := wal.MetadataPersistence.PersistMetadata(&cmd.metadata); persistErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: persistErr.Error(),
+			logfield.Component:   writeAheadLog,
+			logfield.Event:       "FORCE-SET",
+		}).Errorf("error while resetting metadata")
+		return persistErr
+	}
+	state.WriteAheadLogMetadata = cmd.metadata
+	return nil
 }
 
 func (wal *WriteAheadLogManagerImpl) handleAppendEntry(state *writeAheadLogManagerState, cmd *appendEntry) *writeEntryReply {
