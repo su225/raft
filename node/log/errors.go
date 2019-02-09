@@ -66,6 +66,13 @@ type SnapshotMetadataMonotonicityViolationError struct {
 	AfterMetadata  SnapshotMetadata
 }
 
+// KeyValuePairDoesNotExistInSnapshotError is returned when the
+// key-value pair does not exist in the snapshot
+type KeyValuePairDoesNotExistInSnapshotError struct {
+	Key   string
+	Epoch uint64
+}
+
 func (e *InvalidEpochError) Error() string {
 	return fmt.Sprintf("epoch e must satisfy [%d < e < %d]",
 		e.StrictLowerBound, e.StrictUpperBound)
@@ -74,4 +81,9 @@ func (e *InvalidEpochError) Error() string {
 func (e *SnapshotMetadataMonotonicityViolationError) Error() string {
 	return fmt.Sprintf("snapshot metadata monotonicity error. Before=%v, After=%v",
 		e.BeforeMetadata, e.AfterMetadata)
+}
+
+func (e *KeyValuePairDoesNotExistInSnapshotError) Error() string {
+	return fmt.Sprintf("key %s does not exist in snapshot(epoch:%d)",
+		e.Key, e.Epoch)
 }

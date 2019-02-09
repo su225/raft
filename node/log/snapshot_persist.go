@@ -90,7 +90,17 @@ func (sp *SimpleFileBasedSnapshotPersistence) PersistKeyValuePair(epoch uint64, 
 // during the operation then it is reported.
 func (sp *SimpleFileBasedSnapshotPersistence) RetrieveKeyValuePair(epoch uint64, key string) (data.KVPair, error) {
 	kvPath := sp.getKVPairFilename(epoch, key)
-	return sp.getKVPairFromFile(kvPath)
+	kvPair, err := sp.getKVPairFromFile(kvPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return data.KVPair{}, &KeyValuePairDoesNotExistInSnapshotError{
+				Key:   key,
+				Epoch: epoch,
+			}
+		}
+		return data.KVPair{}, err
+	}
+	return kvPair, err
 }
 
 // DeleteKeyValuePair deletes the key-value pair from persistence. If there is any error
@@ -200,4 +210,14 @@ func (smp *SimpleFileBasedSnapshotMetadataPersistence) RetrieveMetadata() (*Snap
 // getSnapshotMetadataPath returns the path to the snapshot metadata
 func (smp *SimpleFileBasedSnapshotMetadataPersistence) getSnapshotMetadataPath() string {
 	return filepath.Join(smp.SnapshotMetadataPath, "snapshot-metadata.json")
+}
+
+// IsKeyValuePairDoesNotExistInSnapshotError is a utility method to check if the error
+// is due to key-value pair not existing in snapshot
+func IsKeyValuePairDoesNotExistInSnapshotError(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := err.(*KeyValuePairDoesNotExistInSnapshotError)
+	return ok
 }
