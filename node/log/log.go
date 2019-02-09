@@ -381,8 +381,8 @@ func (wal *WriteAheadLogManagerImpl) handleUpdateMaxCommittedIndex(state *writeA
 			logfield.Component: writeAheadLog,
 			logfield.Event:     "UPDATE-COMMIT-IDX",
 		}).Debugf("updated committed index to %d", state.WriteAheadLogMetadata.MaxCommittedIndex)
+		go wal.SnapshotHandler.RunSnapshotBuilder()
 	}
-	go wal.SnapshotHandler.RunSnapshotBuilder()
 	return &updateMaxCommittedIndexReply{updatedIndex: state.WriteAheadLogMetadata.MaxCommittedIndex}
 }
 
