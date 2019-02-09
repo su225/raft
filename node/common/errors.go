@@ -46,5 +46,5 @@ func (e *ComponentIsPausedError) Error() string {
 }
 
 func (e *ComponentIsFrozenError) Error() string {
-	return fmt.Sprintf("Component %s is destroyed. Message=%s", e.ComponentName, e.Message)
+	return fmt.Sprintf("Component %s is frozen. Message=%s", e.ComponentName, e.Message)
 }
