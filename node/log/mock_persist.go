@@ -36,11 +36,11 @@ func (ep *InMemoryEntryPersistence) RetrieveEntry(index uint64) (Entry, error) {
 	if !ep.ShouldSucceed {
 		return nil, errPersistence
 	}
-	if entry, isPresent := ep.Entries[index]; !isPresent {
+	entry, isPresent := ep.Entries[index]
+	if !isPresent {
 		return nil, errPersistence
-	} else {
-		return entry, nil
 	}
+	return entry, nil
 }
 
 // DeleteEntry deletes the given entry if ShouldSucceed is true, error otherwise
