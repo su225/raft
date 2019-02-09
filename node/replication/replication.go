@@ -351,11 +351,17 @@ func (r *RealEntryReplicationController) handleReplicateEntry(state *replication
 	curReplicateIndex := curEntryIndex
 	initMatchIndex := state.matchIndex
 	for curReplicateIndex > initMatchIndex && curReplicateIndex <= curEntryIndex {
-		replicatedSuccessfully, replicationErr := r.doReplicateEntry(state, curTermID, curEntryIndex)
+		replicatedSuccessfully, replicationErr := r.doReplicateEntry(state, curTermID, curReplicateIndex)
 		if replicationErr != nil {
+			matchIndex, transferErr := r.RaftProtobufClient.InstallSnapshot(curTermID, state.remoteNodeInfo.ID)
+			if transferErr == nil {
+				state.matchIndex = matchIndex
+				curReplicateIndex = matchIndex + 1
+				continue
+			}
 			return &replicateEntryReply{
 				matchIndex:     state.matchIndex,
-				replicationErr: replicationErr,
+				replicationErr: transferErr,
 			}
 		}
 		if replicatedSuccessfully {

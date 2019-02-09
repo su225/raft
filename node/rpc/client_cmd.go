@@ -58,3 +58,14 @@ type clientReconnect struct {
 	protocolClientCommand
 	errChan chan error
 }
+
+type clientInstallSnapshot struct {
+	protocolClientCommand
+	currentTermID uint64
+	replyChan     chan *installSnapshotReply
+}
+
+type installSnapshotReply struct {
+	committedIndex uint64
+	err            error
+}

@@ -1,6 +1,10 @@
 package log
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/su225/raft/node/data"
+)
 
 // MockSnapshotHandler is the mock of snapshot handler
 // which must be used only for TESTING PURPOSES
@@ -23,7 +27,7 @@ func NewMockSnapshotHandler(
 
 // GetDefaultMockSnapshotHandler creates mock snapshot handler with default settings
 func GetDefaultMockSnapshotHandler() *MockSnapshotHandler {
-	return NewMockSnapshotHandler(true, SnapshotMetadata{Epoch: 1, Index: 0})
+	return NewMockSnapshotHandler(true, SnapshotMetadata{Epoch: 1, EntryID: EntryID{}})
 }
 
 var errSnapshotHandler = errors.New("snapshot handler error")
@@ -71,6 +75,14 @@ func (ms *MockSnapshotHandler) GetKeyValuePair(epoch uint64, key string) (string
 		return "", errSnapshotHandler
 	}
 	return "a", nil
+}
+
+// ForEachKeyValuePair does nothing if shouldSucceed is true
+func (ms *MockSnapshotHandler) ForEachKeyValuePair(epoch uint64, f func(data.KVPair) error) error {
+	if !ms.ShouldSucceed {
+		return errSnapshotHandler
+	}
+	return nil
 }
 
 // CreateEpoch returns error if shouldSucceed is false, otherwise does nothing

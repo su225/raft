@@ -57,6 +57,10 @@ type SnapshotHandler interface {
 	// persistence errors then it is returned
 	GetKeyValuePair(epoch uint64, key string) (value string, err error)
 
+	// ForEachKeyValuePair iterates through each key-value pair in the
+	// snapshot and performs the given operation on it.
+	ForEachKeyValuePair(epoch uint64, transformFunc func(data.KVPair) error) error
+
 	// CreateEpoch creates a new snapshot epoch. The epochID specified
 	// must be STRICTLY GREATER THAN the current epoch. Otherwise it
 	// is results in epoch bound violation error. This operation
@@ -229,6 +233,19 @@ func (sh *RealSnapshotHandler) GetKeyValuePair(epoch uint64, key string) (string
 	return reply.value, reply.err
 }
 
+// ForEachKeyValuePair iterates through each key-value pair in the snapshot with given epoch and
+// performs the function given. If there are any errors in the process then it is returned. This
+// operation requires snapshot to be frozen and might take a lot of time depending on the number
+// of keys in the snapshot,
+func (sh *RealSnapshotHandler) ForEachKeyValuePair(epoch uint64, transformFunc func(data.KVPair) error) error {
+	errorChan := make(chan error)
+	sh.commandChan <- &forEachKeyValuePair{
+		epoch:         epoch,
+		transformFunc: transformFunc,
+	}
+	return <-errorChan
+}
+
 // CreateEpoch creates a new epoch with the given epoch ID. If the new epoch is less than
 // or equal to the current epoch or if there is already an epoch then it is an error
 func (sh *RealSnapshotHandler) CreateEpoch(epochID uint64) error {
@@ -292,7 +309,10 @@ func (sh *RealSnapshotHandler) loop() {
 		freezeLevel:             0,
 		snapshotBuilderStopChan: make(chan struct{}),
 		SnapshotMetadata: SnapshotMetadata{
-			Index: 0,
+			EntryID: EntryID{
+				Index:  0,
+				TermID: 0,
+			},
 			Epoch: 1,
 		},
 	}
@@ -323,6 +343,8 @@ func (sh *RealSnapshotHandler) loop() {
 			c.errorChan <- sh.handleRemoveKVPair(state, c)
 		case *getKVPair:
 			c.replyChan <- sh.handleGetKVPair(state, c)
+		case *forEachKeyValuePair:
+			sh.handleForEachKeyValuePair(state, c)
 
 		case *createEpoch:
 			c.errorChan <- sh.handleCreateEpoch(state, c)
@@ -399,7 +421,7 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerRecover(state *snapshotHandl
 	metadata, retrieveErr := sh.SnapshotMetadataPersistence.RetrieveMetadata()
 	if retrieveErr != nil {
 		if os.IsNotExist(retrieveErr) {
-			state.SnapshotMetadata = SnapshotMetadata{Epoch: 1, Index: 0}
+			state.SnapshotMetadata = SnapshotMetadata{Epoch: 1, EntryID: EntryID{}}
 			sh.SnapshotPersistence.StartEpoch(state.Epoch)
 			return nil
 		}
@@ -500,7 +522,8 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 				continue
 			}
 			nextIndex := curSnapshotIndex + 1
-			if err := sh.applyEntryToSnapshot(epoch, nextIndex); err != nil {
+			entryTermID, err := sh.applyEntryToSnapshot(epoch, nextIndex)
+			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					logfield.ErrorReason: err.Error(),
 					logfield.Component:   snapshotHandler,
@@ -509,7 +532,14 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 				stopSnapshotBuilder = true
 				continue
 			}
-			snapshotMetadata = SnapshotMetadata{Index: nextIndex, Epoch: epoch}
+			snapshotMetadata = SnapshotMetadata{
+				Epoch: epoch,
+				EntryID: EntryID{
+					TermID: entryTermID,
+					Index:  nextIndex,
+				},
+			}
+			logrus.Debugf("snapshotMeta=%v", snapshotMetadata)
 			if err := sh.SetSnapshotMetadata(snapshotMetadata); err != nil {
 				logrus.WithFields(logrus.Fields{
 					logfield.ErrorReason: err.Error(),
@@ -526,7 +556,7 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 
 // applyEntryToSnapshot fetches the snapshot entry corresponding to the given
 // index and applies it to the snapshot with given epoch
-func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) error {
+func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) (uint64, error) {
 	entry, err := sh.parentWALog.GetEntry(index)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -534,8 +564,9 @@ func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) error {
 			logfield.Component:   snapshotHandler,
 			logfield.Event:       "FETCH-ENTRY",
 		}).Errorf("error while fetching entry #%d", index)
-		return err
+		return 0, err
 	}
+	termID := entry.GetTermID()
 	if err := sh.doApplyEntry(epoch, index, entry); err != nil {
 		logrus.WithFields(logrus.Fields{
 			logfield.ErrorReason: err.Error(),
@@ -543,9 +574,9 @@ func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) error {
 			logfield.Event:       "APPLY-ENTRY",
 		}).Errorf("failed to apply entry #%d to snapshot(epoch:%d)",
 			index, epoch)
-		return err
+		return 0, err
 	}
-	return nil
+	return termID, nil
 }
 
 // doApplyEntry applies the given entry at the given index to the snapshot of
@@ -670,6 +701,36 @@ func (sh *RealSnapshotHandler) handleGetKVPair(state *snapshotHandlerState, cmd 
 	return reply
 }
 
+// handleForEachKeyValuePair goes through each key-value pair in the snapshot with given epoch and
+// applies the transform function given. If there is any error in the process then it is returned
+func (sh *RealSnapshotHandler) handleForEachKeyValuePair(state *snapshotHandlerState, cmd *forEachKeyValuePair) {
+	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
+		cmd.errorChan <- statusErr
+		return
+	}
+	if state.SnapshotMetadata.Epoch != cmd.epoch {
+		cmd.errorChan <- &InvalidEpochError{
+			StrictLowerBound: state.SnapshotMetadata.Epoch,
+			StrictUpperBound: cmd.epoch,
+		}
+		return
+	}
+	go sh.performOnEachKVPair(cmd.transformFunc, cmd.errorChan, cmd.epoch)
+}
+
+// performOnEachKVPair does the actual task of iterating through key-value pairs and
+// applying the given transformation function (mechanism of iteration depends on the
+// underlying SnapshotPersistence)
+func (sh *RealSnapshotHandler) performOnEachKVPair(
+	transformFunc func(data.KVPair) error,
+	errorChan chan<- error,
+	currentEpoch uint64,
+) {
+	sh.Freeze()
+	defer sh.Unfreeze()
+	errorChan <- sh.SnapshotPersistence.ForEachKey(currentEpoch, transformFunc)
+}
+
 // handleCreateEpoch creates a new epoch. The new epoch should be greater than the current
 // epoch. Otherwise epoch bound error is returned. If there is any error then it is returned
 func (sh *RealSnapshotHandler) handleCreateEpoch(state *snapshotHandlerState, cmd *createEpoch) error {
@@ -714,7 +775,7 @@ func (sh *RealSnapshotHandler) handleDeleteEpoch(state *snapshotHandlerState, cm
 
 func (sh *RealSnapshotHandler) handleGetSnapshotMetadata(state *snapshotHandlerState) SnapshotMetadata {
 	if statusErr := sh.checkWithoutFrozenness(state); statusErr != nil {
-		return SnapshotMetadata{Index: 0, Epoch: 0}
+		return SnapshotMetadata{EntryID: EntryID{}, Epoch: 0}
 	}
 	return state.SnapshotMetadata
 }

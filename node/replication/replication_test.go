@@ -104,7 +104,6 @@ func NewMockReplicationRPCClient(
 
 func (m *MockReplicationRPCClient) RequestVote(curTermID uint64, nodeID string, lastLogEntryID log.EntryID) (bool, error) {
 	panic("request vote should not be used for replication")
-	return false, nil
 }
 
 func (m *MockReplicationRPCClient) Heartbeat(curTermID uint64, nodeID string, maxCommittedIndex uint64) (bool, error) {
@@ -112,7 +111,6 @@ func (m *MockReplicationRPCClient) Heartbeat(curTermID uint64, nodeID string, ma
 		   commit-index before responding to client is not necessary as leader
 		   election algorithm will make sure that the newly elected leader has
 		   the entry replicated so that it can commit it`)
-	return true, nil
 }
 
 func (m *MockReplicationRPCClient) AppendEntry(curTermID uint64, nodeID string, prevEntryID log.EntryID, index uint64, entry log.Entry) (bool, error) {
@@ -122,6 +120,10 @@ func (m *MockReplicationRPCClient) AppendEntry(curTermID uint64, nodeID string, 
 		}
 	}
 	return true, nil
+}
+
+func (m *MockReplicationRPCClient) InstallSnapshot(curTermID uint64, nodeID string) (uint64, error) {
+	return 0, errors.New("replication-installSnapshot mock not implemented")
 }
 
 func (m *MockReplicationRPCClient) Start() error {

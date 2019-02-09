@@ -229,7 +229,10 @@ func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_I
 				return err
 			}
 			snapshotMetadata := log.SnapshotMetadata{
-				Index: index,
+				EntryID: log.EntryID{
+					TermID: termID,
+					Index:  index,
+				},
 				Epoch: nextEpoch,
 			}
 			if err := rpcs.SnapshotHandler.SetSnapshotMetadata(snapshotMetadata); err != nil {
@@ -458,22 +461,11 @@ func (rpcs *RealRaftProtobufServer) handleHeartbeat(serverState *raftProtocolSer
 			return reply
 		}
 		if opErr := rpcs.RaftStateManager.DowngradeToFollower(remoteNodeID, remoteTermID); opErr != nil {
-			logrus.WithFields(logrus.Fields{
-				ErrorReason: opErr.Error(),
-				Component:   rpcServer,
-				Event:       "DOWNGRADE-TO-FOLLOWER",
-			}).Errorf("error while trying to step down as follower")
 			reply.heartbeatError = opErr
 			reply.AcceptAsLeader = true
 			return reply
 		}
 		if _, updateErr := rpcs.WriteAheadLogManager.UpdateMaxCommittedIndex(cmd.HeartbeatRequest.GetLatestCommitIndex()); updateErr != nil {
-			logrus.WithFields(logrus.Fields{
-				ErrorReason: updateErr.Error(),
-				Component:   rpcServer,
-				Event:       "UPDATE-COMMIT-IDX",
-			}).Errorf("error while updating commit index to %d",
-				cmd.HeartbeatRequest.GetLatestCommitIndex())
 			reply.heartbeatError = updateErr
 			reply.AcceptAsLeader = true
 			return reply

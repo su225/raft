@@ -14,8 +14,8 @@ import (
 // SnapshotMetadata represents the metadata associated
 // with the snapshot like its epoch and index
 type SnapshotMetadata struct {
-	Epoch uint64 `json:"epoch"`
-	Index uint64 `json:"index"`
+	Epoch   uint64 `json:"epoch"`
+	EntryID `json:"entry_id"`
 }
 
 // SnapshotPersistence is responsible for persistence

@@ -1,5 +1,7 @@
 package log
 
+import "github.com/su225/raft/node/data"
+
 type snapshotHandlerCommand interface {
 	IsSnapshotHandlerCommand() bool
 }
@@ -68,6 +70,13 @@ type getKVPair struct {
 type getKVPairReply struct {
 	key, value string
 	err        error
+}
+
+type forEachKeyValuePair struct {
+	snapshotHandlerCommand
+	epoch         uint64
+	transformFunc func(data.KVPair) error
+	errorChan     chan error
 }
 
 type createEpoch struct {

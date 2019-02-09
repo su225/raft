@@ -9,6 +9,7 @@ import (
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
 	"github.com/su225/raft/node/common"
+	"github.com/su225/raft/node/data"
 	"github.com/su225/raft/node/log"
 	"github.com/su225/raft/pb"
 	"google.golang.org/grpc"
@@ -36,6 +37,10 @@ type RaftProtobufClient interface {
 	// If replication is successful, then true is returned or false otherwise.
 	AppendEntry(curTermID uint64, nodeID string, prevEntryID log.EntryID, index uint64, entry log.Entry) (appended bool, appendErr error)
 
+	// InstallSnapshot installs the snapshot to the remote node and the remote node
+	// replies with its current index ID. If there is any error then it is returned
+	InstallSnapshot(curTermID uint64, nodeID string) (committedIndex uint64, err error)
+
 	// ComponentLifecycle indicates that this is a component and
 	// has lifecycle events - start and destroy
 	common.ComponentLifecycle
@@ -61,6 +66,9 @@ type RealRaftProtobufClient struct {
 	// RPCTimeoutInMillis specifies RPC-timeout in milliseconds
 	RPCTimeoutInMillis uint64
 
+	// SnapshotHandler is required for handling snapshot transfers
+	log.SnapshotHandler
+
 	// commandChannels represent the channel per client
 	commandChannels map[string]chan protocolClientCommand
 }
@@ -73,6 +81,7 @@ func NewRealRaftProtobufClient(
 	currentNodeID string,
 	maxConnRetryAttempts uint32,
 	rpcTimeoutInMillis uint64,
+	snapshotHandler log.SnapshotHandler,
 ) *RealRaftProtobufClient {
 	return &RealRaftProtobufClient{
 		clientMutex:                sync.RWMutex{},
@@ -81,6 +90,7 @@ func NewRealRaftProtobufClient(
 		commandChannels:            make(map[string]chan protocolClientCommand),
 		MaxConnectionRetryAttempts: maxConnRetryAttempts,
 		RPCTimeoutInMillis:         rpcTimeoutInMillis,
+		SnapshotHandler:            snapshotHandler,
 	}
 }
 
@@ -177,6 +187,24 @@ func (rpcc *RealRaftProtobufClient) AppendEntry(curTermID uint64, nodeID string,
 	return false, nil
 }
 
+// InstallSnapshot is a streaming RPC call which transfers the snapshot from this node to the
+// destination. Once the transfer is complete the remote node returns the committed index if
+// successful or an error if there was any.
+func (rpcc *RealRaftProtobufClient) InstallSnapshot(curTermID uint64, nodeID string) (uint64, error) {
+	cmdChan, isPresent := rpcc.getNode(nodeID)
+	if !isPresent {
+		return 0, nil
+	}
+
+	replyChan := make(chan *installSnapshotReply)
+	cmdChan <- &clientInstallSnapshot{
+		currentTermID: curTermID,
+		replyChan:     replyChan,
+	}
+	reply := <-replyChan
+	return reply.committedIndex, reply.err
+}
+
 // putNode creates an entry for the given node and opens a channel. This
 // operation is safe in concurrent environments
 func (rpcc *RealRaftProtobufClient) putNode(info cluster.NodeInfo) {
@@ -225,6 +253,8 @@ func (rpcc *RealRaftProtobufClient) loop(info cluster.NodeInfo) {
 			c.replyChan <- rpcc.handleHeartbeat(state, c)
 		case *clientAppendEntry:
 			c.replyChan <- rpcc.handleAppendEntry(state, c)
+		case *clientInstallSnapshot:
+			rpcc.handleInsatllSnapshot(state, c)
 		case *clientReconnect:
 			c.errChan <- rpcc.handleReconnect(state, c)
 		}
@@ -383,6 +413,107 @@ func (rpcc *RealRaftProtobufClient) handleAppendEntry(state *raftProtocolClientS
 		entryAppended: rpcResponse.GetAppended(),
 		appendErr:     nil,
 	}
+}
+
+func (rpcc *RealRaftProtobufClient) handleInsatllSnapshot(state *raftProtocolClientState, cmd *clientInstallSnapshot) {
+	reply := &installSnapshotReply{
+		committedIndex: 0,
+		err:            nil,
+	}
+	if statusErr := rpcc.checkOperationalStatus(state); statusErr != nil {
+		reply.err = statusErr
+		cmd.replyChan <- reply
+		return
+	}
+	rpcClient, clientConnErr := rpcc.getRPCClient(state)
+	if clientConnErr != nil {
+		reply.err = clientConnErr
+		cmd.replyChan <- reply
+		return
+	}
+	go rpcc.doTransferSnapshot(rpcClient, cmd.replyChan, state.remoteNodeInfo)
+}
+
+func (rpcc *RealRaftProtobufClient) doTransferSnapshot(
+	client raftpb.RaftProtocolClient,
+	replyChan chan<- *installSnapshotReply,
+	remoteNodeInfo cluster.NodeInfo,
+) {
+	rpcc.SnapshotHandler.Freeze()
+	defer rpcc.SnapshotHandler.Unfreeze()
+
+	stream, streamErr := client.InstallSnapshot(context.Background())
+	if streamErr != nil {
+		replyChan <- &installSnapshotReply{err: streamErr}
+		return
+	}
+	defer stream.CloseSend()
+	snapshotMetadata := rpcc.SnapshotHandler.GetSnapshotMetadata()
+	snapshotIndex := snapshotMetadata.Index
+	snapshotTermID := snapshotMetadata.TermID
+	currentEpoch := snapshotMetadata.Epoch
+	transferErr := rpcc.SnapshotHandler.ForEachKeyValuePair(currentEpoch, func(kv data.KVPair) error {
+		streamSendErr := stream.Send(&raftpb.SnapshotData{
+			Data: &raftpb.SnapshotData_KvData{
+				KvData: &raftpb.Data{
+					Key:   kv.Key,
+					Value: kv.Value,
+				},
+			},
+		})
+		if streamSendErr != nil {
+			logrus.WithFields(logrus.Fields{
+				logfield.ErrorReason: streamSendErr.Error(),
+				logfield.Component:   raftProtocolClient,
+				logfield.Event:       "STREAM-SEND-KV",
+			}).Errorf("error while sending key %s to %s",
+				kv.Key, remoteNodeInfo.ID)
+			return streamSendErr
+		}
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: raftProtocolClient,
+			logfield.Event:     "STREAM-SEND-KV",
+		}).Debugf("sent key %s to %s", kv.Key, remoteNodeInfo.ID)
+		return nil
+	})
+	if transferErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: transferErr.Error(),
+			logfield.Component:   raftProtocolClient,
+			logfield.Event:       "STREAM-SEND-KV",
+		}).Errorf("error while transferring key-value pairs to %s",
+			remoteNodeInfo.ID)
+		replyChan <- &installSnapshotReply{err: transferErr}
+		return
+	}
+	streamMetaSendErr := stream.Send(&raftpb.SnapshotData{
+		Data: &raftpb.SnapshotData_Metadata{
+			Metadata: &raftpb.OpEntryMetadata{
+				Index:  snapshotIndex,
+				TermId: snapshotTermID,
+			},
+		},
+	})
+	if streamMetaSendErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: streamMetaSendErr.Error(),
+			logfield.Component:   raftProtocolClient,
+			logfield.Event:       "STREAM-SEND-META",
+		}).Errorf("error while transferring snapshot metadata to %s", remoteNodeInfo.ID)
+		replyChan <- &installSnapshotReply{err: streamMetaSendErr}
+		return
+	}
+	insSnapReply, closeErr := stream.CloseAndRecv()
+	if closeErr != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: closeErr.Error(),
+			logfield.Component:   raftProtocolClient,
+			logfield.Event:       "CLOSE-STREAM",
+		}).Errorf("error while closing stream to %s", remoteNodeInfo.ID)
+		replyChan <- &installSnapshotReply{err: closeErr}
+		return
+	}
+	replyChan <- &installSnapshotReply{committedIndex: insSnapReply.GetLatestCommitIndex()}
 }
 
 // handleReconnect attempts to reobtain the connection to the remote node

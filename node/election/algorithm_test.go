@@ -90,6 +90,11 @@ func (m *mockVoteRequesterClient) AppendEntry(curTermID uint64, nodeID string, p
 	panic("cannot use appendEntry as part of raft election algorithm")
 }
 
+// InstallSnapshot panics since the election algorithm should not be using it.
+func (m *mockVoteRequesterClient) InstallSnapshot(curTermID uint64, nodeID string) (uint64, error) {
+	panic("cannot use installSnapshot as part of raft election algorithm")
+}
+
 // Start is a no-op in testing scenarios
 func (m *mockVoteRequesterClient) Start() error {
 	return nil

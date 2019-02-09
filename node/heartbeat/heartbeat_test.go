@@ -130,6 +130,10 @@ func (m *mockHeartbeatClient) AppendEntry(curTermID uint64, nodeID string, prevE
 	panic("cannot use appendEntry as part of heartbeating")
 }
 
+func (m *mockHeartbeatClient) InstallSnapshot(curTermID uint64, nodeID string) (uint64, error) {
+	panic("cannot use installSnapshot as part of heartbeating")
+}
+
 // Start is a no-op in testing scenarios
 func (m *mockHeartbeatClient) Start() error {
 	return nil

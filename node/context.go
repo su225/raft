@@ -155,13 +155,6 @@ func NewContext(config *Config) *Context {
 	}
 	membershipManager := cluster.NewRealMembershipManager(currentNodeInfo, joiner)
 
-	realRaftProtobufClient := rpc.NewRealRaftProtobufClient(
-		membershipManager,
-		config.NodeID,
-		config.MaxConnectionRetryAttempts,
-		uint64(config.RPCTimeoutInMillis),
-	)
-
 	entryPersistence := log.NewFileBasedEntryPersistence(config.WriteAheadLogEntryPath)
 	metadataPersistence := log.NewFileBasedMetadataPersistence(config.WriteAheadLogMetadataPath)
 	writeAheadLogManager := log.NewWriteAheadLogManagerImpl(
@@ -176,6 +169,13 @@ func NewContext(config *Config) *Context {
 		snapshotPersistence,
 		snapshotMetadataPersistence,
 		nil, // EntryGarbageCollector filled later	
+	)
+	realRaftProtobufClient := rpc.NewRealRaftProtobufClient(
+		membershipManager,
+		config.NodeID,
+		config.MaxConnectionRetryAttempts,
+		uint64(config.RPCTimeoutInMillis),
+		snapshotHandler,
 	)
 	entryGarbageCollector := log.NewRealEntryGarbageCollector(
 		snapshotHandler,

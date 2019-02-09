@@ -152,11 +152,6 @@ func (h *RealLeaderHeartbeatController) SendHeartbeat() (bool, error) {
 			defer hbWaitGroup.Done()
 			acceptedAsLeader, rpcErr := h.RaftProtobufClient.Heartbeat(currentTermID, ni.ID, currentLogMetadata.MaxCommittedIndex)
 			if rpcErr != nil {
-				logrus.WithFields(logrus.Fields{
-					logfield.ErrorReason: rpcErr.Error(),
-					logfield.Component:   heartbeatController,
-					logfield.Event:       "SEND-HEARTBEAT",
-				}).Errorf("cannot send heartbeat to %s", ni.ID)
 				return
 			}
 			atomic.AddInt32(&nodesReached, 1)
