@@ -54,7 +54,7 @@ func NewFileBasedEntryPersistence(entryDir string) *FileBasedEntryPersistence {
 // PersistEntry persists entry to the file with the name of the file being index
 // If there is any error in the operation it is returned
 func (ep *FileBasedEntryPersistence) PersistEntry(index uint64, entry Entry) error {
-	entryOnDisk := ep.getPersistableEntry(entry)
+	entryOnDisk := getPersistableEntry(entry)
 	marshaledEntry, marshalErr := json.Marshal(entryOnDisk)
 	if marshalErr != nil {
 		return marshalErr
@@ -80,7 +80,7 @@ func (ep *FileBasedEntryPersistence) RetrieveEntry(index uint64) (Entry, error) 
 	if unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
-	inMemoryEntry := ep.getEntry(&entry)
+	inMemoryEntry := getInMemEntry(&entry)
 	return inMemoryEntry, nil
 }
 
@@ -104,7 +104,7 @@ func (ep *FileBasedEntryPersistence) getEntryFilePath(index uint64) string {
 }
 
 // getPersistableEntry converts the entry to the persistable format for storage
-func (ep *FileBasedEntryPersistence) getPersistableEntry(entry Entry) *persistableEntry {
+func getPersistableEntry(entry Entry) *persistableEntry {
 	switch e := entry.(type) {
 	case *UpsertEntry:
 		return &persistableEntry{
@@ -128,9 +128,9 @@ func (ep *FileBasedEntryPersistence) getPersistableEntry(entry Entry) *persistab
 	return nil
 }
 
-// getEntry converts the entry from persistable format to the in-memory format. If the
+// getInMemEntry converts the entry from persistable format to the in-memory format. If the
 // EntryTypeCode is not understood then SentinelEntry is returned
-func (ep *FileBasedEntryPersistence) getEntry(entry *persistableEntry) Entry {
+func getInMemEntry(entry *persistableEntry) Entry {
 	switch entry.EntryTypeCode {
 	case "A":
 		return &UpsertEntry{

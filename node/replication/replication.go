@@ -348,35 +348,70 @@ func (r *RealEntryReplicationController) handleReplicateEntry(state *replication
 
 	curTermID := cmd.entryID.TermID
 	curEntryIndex := cmd.entryID.Index
-	curReplicateIndex := curEntryIndex
 	initMatchIndex := state.matchIndex
-	for curReplicateIndex > initMatchIndex && curReplicateIndex <= curEntryIndex {
-		replicatedSuccessfully, replicationErr := r.doReplicateEntry(state, curTermID, curReplicateIndex)
-		if replicationErr != nil {
-			matchIndex, transferErr := r.RaftProtobufClient.InstallSnapshot(curTermID, state.remoteNodeInfo.ID)
-			if transferErr == nil {
-				state.matchIndex = matchIndex
-				curReplicateIndex = matchIndex + 1
-				continue
+
+	snapshotMetadata := r.SnapshotHandler.GetSnapshotMetadata()
+	snapshotIndex := snapshotMetadata.Index
+
+	// Try to transfer the current entry, if it is not possible then
+	// try transferring the previous entry until initial match index
+	// is hit (it does not make sense to go less than that since from
+	// previous rounds it is confirmed that logs match until that point)
+	//
+	// If current snapshot index is hit in the middle then just transfer
+	// the snapshot there by fast forwarding the log to that point. After
+	// that send entries from the snapshot index to the end
+	replicateIndex := curEntryIndex
+	for replicateIndex > initMatchIndex && replicateIndex <= curEntryIndex {
+		logrus.Debugf("nodeID=%s, replicateIndex=%d", state.remoteNodeInfo.ID, replicateIndex)
+		if replicateIndex == snapshotIndex {
+			matchIndex, transferErr := r.doTransferSnapshot(state, curTermID)
+			if transferErr != nil {
+				return &replicateEntryReply{
+					matchIndex:     state.matchIndex,
+					replicationErr: transferErr,
+				}
 			}
-			return &replicateEntryReply{
-				matchIndex:     state.matchIndex,
-				replicationErr: transferErr,
-			}
+			replicateIndex = matchIndex + 1
+			continue
 		}
-		if replicatedSuccessfully {
-			if state.matchIndex < curReplicateIndex {
-				state.matchIndex = curReplicateIndex
+		replicationSuccessful, replicationErr := r.doReplicateEntry(state, curTermID, replicateIndex)
+		if replicationErr != nil {
+			matchIndex, transferErr := r.doTransferSnapshot(state, curTermID)
+			if transferErr != nil {
+				return &replicateEntryReply{
+					matchIndex:     state.matchIndex,
+					replicationErr: transferErr,
+				}
 			}
-			curReplicateIndex++
+			replicateIndex = matchIndex + 1
+			continue
+		}
+		if replicationSuccessful {
+			if state.matchIndex < replicateIndex {
+				state.matchIndex = replicateIndex
+			}
+			replicateIndex++
 		} else {
-			curReplicateIndex--
+			replicateIndex--
 		}
 	}
+
 	return &replicateEntryReply{
 		matchIndex:     state.matchIndex,
 		replicationErr: nil,
 	}
+}
+
+func (r *RealEntryReplicationController) doTransferSnapshot(state *replicationControllerState, curTermID uint64) (uint64, error) {
+	matchIndex, transferErr := r.RaftProtobufClient.InstallSnapshot(curTermID, state.remoteNodeInfo.ID)
+	if transferErr != nil {
+		return 0, transferErr
+	}
+	if matchIndex > state.matchIndex {
+		state.matchIndex = matchIndex
+	}
+	return matchIndex, nil
 }
 
 func (r *RealEntryReplicationController) doReplicateEntry(state *replicationControllerState, curTermID, entryIndex uint64) (bool, error) {

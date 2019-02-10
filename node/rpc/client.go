@@ -202,6 +202,13 @@ func (rpcc *RealRaftProtobufClient) InstallSnapshot(curTermID uint64, nodeID str
 		replyChan:     replyChan,
 	}
 	reply := <-replyChan
+	if reply.err != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: reply.err.Error(),
+			logfield.Component:   raftProtocolClient,
+			logfield.Event:       "TRANSFER-SNAPSHOT",
+		}).Errorf("error while transferring snapshot")
+	}
 	return reply.committedIndex, reply.err
 }
 
@@ -254,7 +261,7 @@ func (rpcc *RealRaftProtobufClient) loop(info cluster.NodeInfo) {
 		case *clientAppendEntry:
 			c.replyChan <- rpcc.handleAppendEntry(state, c)
 		case *clientInstallSnapshot:
-			rpcc.handleInsatllSnapshot(state, c)
+			rpcc.handleInstallSnapshot(state, c)
 		case *clientReconnect:
 			c.errChan <- rpcc.handleReconnect(state, c)
 		}
@@ -415,7 +422,12 @@ func (rpcc *RealRaftProtobufClient) handleAppendEntry(state *raftProtocolClientS
 	}
 }
 
-func (rpcc *RealRaftProtobufClient) handleInsatllSnapshot(state *raftProtocolClientState, cmd *clientInstallSnapshot) {
+func (rpcc *RealRaftProtobufClient) handleInstallSnapshot(state *raftProtocolClientState, cmd *clientInstallSnapshot) {
+	logrus.WithFields(logrus.Fields{
+		logfield.Component: raftProtocolClient,
+		logfield.Event:     "INSTALL-SNAPSHOT",
+	}).Debugf("begin snapshot transfer to %s", state.remoteNodeInfo.ID)
+
 	reply := &installSnapshotReply{
 		committedIndex: 0,
 		err:            nil,
@@ -447,7 +459,6 @@ func (rpcc *RealRaftProtobufClient) doTransferSnapshot(
 		replyChan <- &installSnapshotReply{err: streamErr}
 		return
 	}
-	defer stream.CloseSend()
 	snapshotMetadata := rpcc.SnapshotHandler.GetSnapshotMetadata()
 	snapshotIndex := snapshotMetadata.Index
 	snapshotTermID := snapshotMetadata.TermID
@@ -488,9 +499,12 @@ func (rpcc *RealRaftProtobufClient) doTransferSnapshot(
 	}
 	streamMetaSendErr := stream.Send(&raftpb.SnapshotData{
 		Data: &raftpb.SnapshotData_Metadata{
-			Metadata: &raftpb.OpEntryMetadata{
-				Index:  snapshotIndex,
-				TermId: snapshotTermID,
+			Metadata: &raftpb.SnapshotMetadata{
+				LastEntryMetadata: &raftpb.OpEntryMetadata{
+					TermId: snapshotTermID,
+					Index:  snapshotIndex,
+				},
+				LastEntry: ConvertEntryToProtobuf(snapshotMetadata.LastLogEntry),
 			},
 		},
 	})

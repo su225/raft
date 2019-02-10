@@ -162,9 +162,6 @@ func (rpcs *RealRaftProtobufServer) Heartbeat(context context.Context, request *
 // snapshot transfer must be atomic. In other words, on failure, snapshot being
 // transferred must be discarded.
 func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_InstallSnapshotServer) error {
-	rpcs.SnapshotHandler.Freeze()
-	defer rpcs.SnapshotHandler.Unfreeze()
-
 	snapshotMetadata := rpcs.SnapshotHandler.GetSnapshotMetadata()
 	maxNumberOfAttempts, nextEpoch := uint64(3), snapshotMetadata.Epoch+1
 	for attempt := uint64(1); attempt <= maxNumberOfAttempts; attempt++ {
@@ -180,6 +177,7 @@ func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_I
 			}
 			continue
 		}
+		logrus.Debugf("successfully created epoch %d", nextEpoch)
 		break
 	}
 	for {
@@ -195,6 +193,12 @@ func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_I
 			}).Errorf("error while receiving key-value pair")
 			return err
 		}
+
+		// Whether the remote node sends heartbeats or not, if stream
+		// is received then it is alive and hence this node should continue
+		// to accept its authority
+		rpcs.resetElectionTimeout()
+
 		// Once something is received, you must determine if it is a key-value
 		// pair or the write-ahead log metadata and handle appropriately.
 		switch sd := kvPair.GetData().(type) {
@@ -212,14 +216,28 @@ func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_I
 				return err
 			}
 		case *raftpb.SnapshotData_Metadata:
-			index, termID := sd.Metadata.GetIndex(), sd.Metadata.GetTermId()
+			logrus.WithFields(logrus.Fields{
+				Component: rpcServer,
+				Event:     "RECV-META",
+			}).Debugf("received metadata for epoch %d", nextEpoch)
+			index := sd.Metadata.GetLastEntryMetadata().GetIndex()
+			termID := sd.Metadata.GetLastEntryMetadata().GetTermId()
+			lastLogEntry := rpc.ConvertProtobufToEntry(sd.Metadata.GetLastEntry())
+
+			// Forcibly set the write-ahead log metadata to be the one sent
+			// by the remote node
 			writeAheadLogMetadata := log.WriteAheadLogMetadata{
 				TailEntryID: log.EntryID{
 					TermID: termID,
-					Index:  index,
+					Index:  index - 1,
 				},
-				MaxCommittedIndex: index,
+				// Because the last entry is not yet written
+				MaxCommittedIndex: index - 1,
 			}
+			logrus.Debugf("metadata: tailEntryID=%v, maxCommittedIndex=%d",
+				writeAheadLogMetadata.TailEntryID,
+				writeAheadLogMetadata.MaxCommittedIndex)
+
 			if err := rpcs.WriteAheadLogManager.ForceSetMetadata(writeAheadLogMetadata); err != nil {
 				logrus.WithFields(logrus.Fields{
 					ErrorReason: err.Error(),
@@ -228,24 +246,51 @@ func (rpcs *RealRaftProtobufServer) InstallSnapshot(stream raftpb.RaftProtocol_I
 				}).Errorf("error while setting metadata")
 				return err
 			}
+
+			// Add the last log entry sent by the remote node
+			// (this is due to some implementation issue with replication)
+			if _, err := rpcs.WriteAheadLogManager.WriteEntry(index, lastLogEntry); err != nil {
+				logrus.WithFields(logrus.Fields{
+					ErrorReason: err.Error(),
+					Component:   rpcServer,
+					Event:       "WRITE-LAST-SNAP-ENTRY",
+				}).Errorf("error while writing entry #%d", index)
+				return err
+			}
+			if _, err := rpcs.WriteAheadLogManager.UpdateMaxCommittedIndex(index); err != nil {
+				logrus.WithFields(logrus.Fields{
+					ErrorReason: err.Error(),
+					Component:   rpcServer,
+					Event:       "UPDATE-COMMIT-IDX",
+				}).Errorf("error while updating commit index to %d", index)
+				return err
+			}
+
+			// Set the snapshot metadata to the one sent by the
+			// remote node.
 			snapshotMetadata := log.SnapshotMetadata{
 				EntryID: log.EntryID{
 					TermID: termID,
 					Index:  index,
 				},
-				Epoch: nextEpoch,
+				LastLogEntry: lastLogEntry,
+				Epoch:        nextEpoch,
 			}
 			if err := rpcs.SnapshotHandler.SetSnapshotMetadata(snapshotMetadata); err != nil {
 				logrus.WithFields(logrus.Fields{
 					ErrorReason: err.Error(),
 					Component:   rpcServer,
 					Event:       "SET-SNAPSHOT-METADATA",
-				}).Errorf("error while setting snapshot metadata. Not fatal..")
+				}).Errorf("error while setting snapshot metadata.")
+				return err
 			}
+
+			// It is done and time to reply
 			currentRaftState := rpcs.RaftStateManager.GetRaftState()
+			currentWriteAheadMetadata, _ := rpcs.WriteAheadLogManager.GetMetadata()
 			stream.SendAndClose(&raftpb.InstallSnapshotReply{
 				SenderInfo:        rpcs.getProtobufHeader(&currentRaftState),
-				LatestCommitIndex: writeAheadLogMetadata.MaxCommittedIndex,
+				LatestCommitIndex: currentWriteAheadMetadata.MaxCommittedIndex,
 			})
 		}
 	}
@@ -349,6 +394,12 @@ func (rpcs *RealRaftProtobufServer) handleRequestVote(state *raftProtocolServerS
 	}).Debugf("received request-vote message from (%s,%d)", remoteNodeID, remoteTermID)
 
 	voteGranted, votingErr := rpcs.Voter.DecideVote(remoteNodeID, remoteTermID, remoteTailID)
+	if votingErr != nil {
+		logrus.WithFields(logrus.Fields{
+			Component: rpcServer,
+			Event:     "DECIDE-VOTE",
+		}).Errorf("error while deciding vote")
+	}
 	currentRaftState := rpcs.GetRaftState()
 	rpcs.LeaderElectionManager.ResetTimeout()
 	if voteGranted {

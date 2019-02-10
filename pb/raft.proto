@@ -72,7 +72,7 @@ message HeartbeatReply {
 message SnapshotData {
     oneof data {
         Data kv_data = 1;
-        OpEntryMetadata metadata = 2;
+        SnapshotMetadata metadata = 2;
     }
 }
 
@@ -108,6 +108,15 @@ message Data {
 message OpEntryMetadata {
     uint64 term_id = 1;
     uint64 index = 2;
+}
+
+// SnapshotMetadata represents the metadata associated with the
+// snapshot. It is sent in the end of snapshot transfer to indicate
+// the end of snapshot transfer and telling the remote node to
+// switch epoch.
+message SnapshotMetadata {
+    OpEntryMetadata last_entry_metadata = 1;
+    OpEntry last_entry = 2;
 }
 
 // NodeInfo represents the information of the node like its identifier

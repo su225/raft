@@ -14,8 +14,9 @@ import (
 // SnapshotMetadata represents the metadata associated
 // with the snapshot like its epoch and index
 type SnapshotMetadata struct {
-	Epoch   uint64 `json:"epoch"`
-	EntryID `json:"entry_id"`
+	Epoch        uint64
+	LastLogEntry Entry
+	EntryID
 }
 
 // SnapshotPersistence is responsible for persistence
@@ -187,9 +188,32 @@ func NewSimpleFileBasedSnapshotMetadataPersistence(snapshotMetadataPath string) 
 	return &SimpleFileBasedSnapshotMetadataPersistence{SnapshotMetadataPath: snapshotMetadataPath}
 }
 
+type persistableSnapshotMetadata struct {
+	LastEntryID EntryID           `json:"last_entry_id"`
+	LastEntry   *persistableEntry `json:"last_entry"`
+	Epoch       uint64            `json:"epoch"`
+}
+
+func inMemToPersistableSnapshotMetadata(metadata *SnapshotMetadata) *persistableSnapshotMetadata {
+	return &persistableSnapshotMetadata{
+		LastEntryID: metadata.EntryID,
+		LastEntry:   getPersistableEntry(metadata.LastLogEntry),
+		Epoch:       metadata.Epoch,
+	}
+}
+
+func persistableToInMemSnapshotMetadata(metadata *persistableSnapshotMetadata) *SnapshotMetadata {
+	return &SnapshotMetadata{
+		EntryID:      metadata.LastEntryID,
+		LastLogEntry: getInMemEntry(metadata.LastEntry),
+		Epoch:        metadata.Epoch,
+	}
+}
+
 // PersistMetadata persists snapshot metadata as a file. If there is any error then it is returned
 func (smp *SimpleFileBasedSnapshotMetadataPersistence) PersistMetadata(metadata *SnapshotMetadata) error {
-	metadataBytes, marshalErr := json.Marshal(metadata)
+	persistableMetadata := inMemToPersistableSnapshotMetadata(metadata)
+	metadataBytes, marshalErr := json.Marshal(persistableMetadata)
 	if marshalErr != nil {
 		return marshalErr
 	}
@@ -203,11 +227,11 @@ func (smp *SimpleFileBasedSnapshotMetadataPersistence) RetrieveMetadata() (*Snap
 	if readErr != nil {
 		return nil, readErr
 	}
-	var snapshotMetadata SnapshotMetadata
+	var snapshotMetadata persistableSnapshotMetadata
 	if unmarshalErr := json.Unmarshal(metadataBytes, &snapshotMetadata); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
-	return &snapshotMetadata, nil
+	return persistableToInMemSnapshotMetadata(&snapshotMetadata), nil
 }
 
 // getSnapshotMetadataPath returns the path to the snapshot metadata

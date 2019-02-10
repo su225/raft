@@ -314,7 +314,8 @@ func (sh *RealSnapshotHandler) loop() {
 				Index:  0,
 				TermID: 0,
 			},
-			Epoch: 1,
+			LastLogEntry: &SentinelEntry{},
+			Epoch:        1,
 		},
 	}
 	for {
@@ -534,7 +535,7 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 				continue
 			}
 			nextIndex := curSnapshotIndex + 1
-			entryTermID, err := sh.applyEntryToSnapshot(epoch, nextIndex)
+			entryApplied, err := sh.applyEntryToSnapshot(epoch, nextIndex)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					logfield.ErrorReason: err.Error(),
@@ -547,9 +548,10 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 			snapshotMetadata = SnapshotMetadata{
 				Epoch: epoch,
 				EntryID: EntryID{
-					TermID: entryTermID,
+					TermID: entryApplied.GetTermID(),
 					Index:  nextIndex,
 				},
+				LastLogEntry: entryApplied,
 			}
 			if err := sh.SetSnapshotMetadata(snapshotMetadata); err != nil {
 				logrus.WithFields(logrus.Fields{
@@ -567,7 +569,7 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 
 // applyEntryToSnapshot fetches the snapshot entry corresponding to the given
 // index and applies it to the snapshot with given epoch
-func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) (uint64, error) {
+func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) (Entry, error) {
 	entry, err := sh.parentWALog.GetEntry(index)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -575,9 +577,8 @@ func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) (uint64
 			logfield.Component:   snapshotHandler,
 			logfield.Event:       "FETCH-ENTRY",
 		}).Errorf("error while fetching entry #%d", index)
-		return 0, err
+		return &SentinelEntry{}, err
 	}
-	termID := entry.GetTermID()
 	if err := sh.doApplyEntry(epoch, index, entry); err != nil {
 		logrus.WithFields(logrus.Fields{
 			logfield.ErrorReason: err.Error(),
@@ -585,9 +586,9 @@ func (sh *RealSnapshotHandler) applyEntryToSnapshot(epoch, index uint64) (uint64
 			logfield.Event:       "APPLY-ENTRY",
 		}).Errorf("failed to apply entry #%d to snapshot(epoch:%d)",
 			index, epoch)
-		return 0, err
+		return &SentinelEntry{}, err
 	}
-	return termID, nil
+	return entry, nil
 }
 
 // doApplyEntry applies the given entry at the given index to the snapshot of
