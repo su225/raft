@@ -26,3 +26,4 @@ This command if successful would create a 3-node cluster with nodes _node-1_, _n
    ```shell
    curl -v http://localhost:7777/v1/data/a
    ```
+**NOTE**:  The response can be 500 for some time in the middle (say during leader election or recovery after a crash in which case the leader may not be known to forward the request to). If that is the case, then try again. If it still persists, it might be a bug (feel free to raise a PR in that case)
