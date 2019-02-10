@@ -102,7 +102,7 @@ type RealSnapshotHandler struct {
 
 	// Garbage collectors to clean things up once
 	// snapshot is taken
-	EntryGarbageCollector GarbageCollector
+	GarbageCollector
 
 	// Channel to send command to command handler
 	commandChan chan snapshotHandlerCommand
@@ -115,13 +115,13 @@ func NewRealSnapshotHandler(
 	parentWALog WriteAheadLogManager,
 	snapPersistence SnapshotPersistence,
 	snapMetaPersistence SnapshotMetadataPersistence,
-	entryGC GarbageCollector,
+	gc GarbageCollector,
 ) *RealSnapshotHandler {
 	return &RealSnapshotHandler{
 		parentWALog:                 parentWALog,
 		SnapshotPersistence:         snapPersistence,
 		SnapshotMetadataPersistence: snapMetaPersistence,
-		EntryGarbageCollector:       entryGC,
+		GarbageCollector:            gc,
 		commandChan:                 make(chan snapshotHandlerCommand),
 	}
 }
@@ -370,7 +370,7 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerStart(state *snapshotHandler
 		return nil
 	}
 	go func() {
-		if err := sh.EntryGarbageCollector.Start(); err != nil {
+		if err := sh.GarbageCollector.Start(); err != nil {
 			logrus.WithFields(logrus.Fields{
 				logfield.ErrorReason: err.Error(),
 				logfield.Component:   snapshotHandler,
@@ -401,7 +401,7 @@ func (sh *RealSnapshotHandler) handleSnapshotHandlerDestroy(state *snapshotHandl
 		return errSnapshotHandlerFrozen
 	}
 	go func() {
-		if err := sh.EntryGarbageCollector.Destroy(); err != nil {
+		if err := sh.GarbageCollector.Destroy(); err != nil {
 			logrus.WithFields(logrus.Fields{
 				logfield.ErrorReason: err.Error(),
 				logfield.Component:   snapshotHandler,
@@ -561,7 +561,7 @@ func (sh *RealSnapshotHandler) runSnapshotBuilder(stopSignal <-chan struct{}) {
 				}).Errorf("error while setting snapshot index to %d", nextIndex)
 				stopSnapshotBuilder = true
 			}
-			go sh.EntryGarbageCollector.Resume()
+			go sh.GarbageCollector.Resume()
 		}
 	}
 	sh.terminateSnapshotBuilder()
@@ -816,6 +816,7 @@ func (sh *RealSnapshotHandler) handleSetSnapshotMetadata(state *snapshotHandlerS
 		return persistErr
 	}
 	state.SnapshotMetadata = nextMetadata
+	go sh.GarbageCollector.Resume()
 	return nil
 }
 

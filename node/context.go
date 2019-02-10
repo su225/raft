@@ -135,13 +135,10 @@ type Context struct {
 	// SnapshotHandler is responsible for handling snapshot
 	log.SnapshotHandler
 
-	// EntryGarbageCollector is responsible for cleaning up entries
-	// once their snapshot is taken
-	EntryGarbageCollector log.GarbageCollector
-
-	// SnapshotGarbageCollector is responsible for cleaning up snapshots
-	// which are not longer used. 
-	SnapshotGarbageCollector log.GarbageCollector
+	// GarbageCollector is responsible for cleaning up entries
+	// once their snapshot is taken and also cleaning up snapshot
+	// with stale epoch
+	log.GarbageCollector
 }
 
 // NewContext creates a new node context and returns it
@@ -177,12 +174,12 @@ func NewContext(config *Config) *Context {
 		uint64(config.RPCTimeoutInMillis),
 		snapshotHandler,
 	)
-	entryGarbageCollector := log.NewRealEntryGarbageCollector(
+	garbageCollector := log.NewRealGarbageCollector(
 		snapshotHandler,
 		entryPersistence,
 	)
 	writeAheadLogManager.SnapshotHandler = snapshotHandler
-	snapshotHandler.EntryGarbageCollector = entryGarbageCollector
+	snapshotHandler.GarbageCollector = garbageCollector
 
 	raftStatePersistence := state.NewFileBasedRaftStatePersistence(config.RaftStatePath)
 	raftStateManager := state.NewRealRaftStateManager(
@@ -267,7 +264,7 @@ func NewContext(config *Config) *Context {
 		SnapshotPersistence:         snapshotPersistence,
 		SnapshotMetadataPersistence: snapshotMetadataPersistence,
 		SnapshotHandler:             snapshotHandler,
-		EntryGarbageCollector:       entryGarbageCollector,
+		GarbageCollector:            garbageCollector,
 	}
 }
 
