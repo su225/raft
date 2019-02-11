@@ -49,6 +49,7 @@ In order to build the project you need to have protobuf (protoc) and Go compiler
 The following instructions assume that you have Go installed. Although you can create your own directory structure, it is recommended to use `scripts/setup_cluster_dir.rb` (needs Ruby) for that purpose. The script accepts some arguments to customize some parts of configuration. It will also output the commands that must be run in separate terminal windows (this can be automated and the work is on the way to do the same)
 
 Arguments accepted by setup_cluster_dir.rb script
+
 | Parameter | Meaning |
 |-----------|---------|
 | --run-cluster | If true then it not only generates the configuration but also launches it in a TMux session (default value: false) |
