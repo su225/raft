@@ -1,7 +1,6 @@
 # Raft
 Implementation of a simple key-value store based on Raft consensus protocol in Go. It supports add, delete and query operations on a particular key. Original Raft consensus protocol paper - [link](https://web.stanford.edu/~ouster/cgi-bin/papers/raft-atc14).
 
-[![Build Status](https://travis-ci.org/su225/raft.svg?branch=master)](https://travis-ci.org/su225/raft)
 [![Go Report Card](https://goreportcard.com/badge/github.com/su225/raft)](https://goreportcard.com/report/github.com/su225/raft)
 
 ## Table of contents

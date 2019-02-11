@@ -19,8 +19,8 @@ env:
 
 install:
 - chmod +x scripts/install_protoc3.sh
-- scripts/install_protoc3.sh
-- export PATH="$PWD/protoc3/bin":$PATH
+- scripts/install_protoc.sh
+- export PATH="$PWD/protoc/bin":$PATH
 
 before_script:
 - make gen-pb
