@@ -20,6 +20,5 @@ run-local-cluster: build
 	./scripts/setup_cluster_dir.rb --run-cluster
 
 clean:
-	rm -rf pb/raft.pb.go
 	rm -rf raft
 	rm -rf local-cluster

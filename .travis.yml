@@ -17,14 +17,6 @@ notifications:
 env:
 - GO111MODULE=on
 
-install:
-- chmod +x scripts/install_protoc3.sh
-- scripts/install_protoc.sh
-- export PATH="$PWD/protoc/bin":$PATH
-
-before_script:
-- make gen-pb
-
 script:
 - go vet ./...
 - make test-all
