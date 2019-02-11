@@ -18,7 +18,7 @@ test:
 gen-pb: pb/*.proto
 	protoc -I pb/ pb/raft.proto --go_out=plugins=grpc:pb
 
-setup-local-cluster: build
+setup-local-cluster:
 	./scripts/setup_cluster_dir.rb
 
 run-local-cluster: build
