@@ -1,0 +1,24 @@
+language: go
+
+go:
+- 1.11.x
+
+os:
+- linux
+
+git:
+  depth: 1
+
+sudo: false
+
+notifications:
+  email: false
+
+env:
+- GO111MODULE=on
+
+before_script:
+- go vet ./...
+
+script:
+- make test-all
