@@ -1,10 +1,10 @@
-build: gen-pb
+build:
 	go build -race . 
 
 build-release:
 	go build .
 
-test-all: gen-pb
+test-all:
 	go test -v -race ./...
 
 test:
