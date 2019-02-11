@@ -93,11 +93,11 @@ If you use the `setup_cluster_dir.rb`  then it should output the commands to run
 | --raft-state-path | . | This field is required. It denotes the directory where Raft consensus protocol related state is stored |
 | --join-mode | cluster-file | It specifies how cluster is formed. The default value "cluster-file" means that a cluster configuration file must be given. In future "k8s" mode will be supported for running on Kubernetes |
 | --cluster-config-path | . | This field must be specified only when the joining mode is "cluster-file". Otherwise it will be ignored |
-| --election-timeout | 2000ms | Election timeout in milliseconds. It is recommended to set different election timeouts for each nodes so that all of them won't start election at the same time and cause liveliness issues. This must be much more than heartbeat interval |
-| --heartbeat-interval | 500ms | Heartbeat interval in milliseconds - that is, the time between two heartbeats sent by the leader node. It is recommended to keep this many times less than the election timeout to avoid unnecessary liveliness issues |
-| --rpc-timeout | 1000ms | RPC timeout in milliseconds. The other node is expected to respond to protocol messages within this time |
-| --api-timeout | 2000ms | API timeout in milliseconds. The time after which a REST call is timed out |
-| --api-fwd-timeout | 1500ms | API forward timeout in milliseconds. When the API call hits a non-leader node it is forwarded to the leader. The leader node should then respond within this time. Otherwise the call is considered as failed |
+| --election-timeout | 2000 ms | Election timeout in milliseconds. It is recommended to set different election timeouts for each nodes so that all of them won't start election at the same time and cause liveliness issues. This must be much more than heartbeat interval |
+| --heartbeat-interval | 500 ms | Heartbeat interval in milliseconds - that is, the time between two heartbeats sent by the leader node. It is recommended to keep this many times less than the election timeout to avoid unnecessary liveliness issues |
+| --rpc-timeout | 1000 ms | RPC timeout in milliseconds. The other node is expected to respond to protocol messages within this time |
+| --api-timeout | 2000 ms | API timeout in milliseconds. The time after which a REST call is timed out |
+| --api-fwd-timeout | 1500 ms | API forward timeout in milliseconds. When the API call hits a non-leader node it is forwarded to the leader. The leader node should then respond within this time. Otherwise the call is considered as failed |
 | --max-conn-retry-attempts | 5 | This is optional. It denotes the maximum number of connection retry attempts |
 | --snapshot-path | . | This is required. Snapshot path is the directory where snapshot and its metadata are stored. This is needed for log compaction and fast forwarding features |
 
