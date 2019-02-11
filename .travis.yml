@@ -18,6 +18,7 @@ env:
 - GO111MODULE=on
 
 before_script:
+- make gen-pb
 - go vet ./...
 
 script:
