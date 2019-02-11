@@ -1,6 +1,15 @@
 # Raft
 Implementation of a simple key-value store based on Raft consensus protocol in Go. It supports add, delete and query operations on a particular key. Original Raft consensus protocol paper - [link](https://web.stanford.edu/~ouster/cgi-bin/papers/raft-atc14).
 
+## Table of contents
+1. [Quick start](#start-a-3-node-cluster-locally-with-default-settings)
+2. [Build, test and run](#build-test-and-run)
+    1. [Building and running tests](#building-and-running-tests)
+    2. [Setting up cluster directory structure](#setting-up-cluster-directory-structure)
+    3. [Setting up cluster configuration](#setting-up-cluster-configuration)
+    4. [Running an individual node locally](#running-an-individual-node-locally)
+
+
 ## Start a 3-node cluster locally with default settings
 Assuming you have Ruby, Go and Tmux installed in your computer, run the following command to freshly build the source code, create default configuration and launch the nodes in Tmux
 ```shell
@@ -61,7 +70,7 @@ Arguments accepted by setup_cluster_dir.rb script
 
 **NOTE**: Make sure that RPC and API port ranges are non-overlapping. At this point in time the script does not validate that. 
 
-### Setting up cluster configuration (for local testing only)
+### Setting up cluster configuration
 If you use the `setup_cluster_dir.rb` it will generate the cluster configuration. Otherwise you have to create a JSON configuration file containing information about all the cluster nodes with their ID, contact information (RPC and API ports) and so on. Here is an example configuration for a 3-node cluster
 ```json
 [
