@@ -1,3 +1,5 @@
+VERSION=0
+
 build:
 	go build -race . 
 
@@ -18,6 +20,14 @@ setup-local-cluster:
 
 run-local-cluster: build
 	./scripts/setup_cluster_dir.rb --run-cluster
+
+build-docker-container: gen-pb
+	docker build -t raft:local .
+
+push-to-registry: build-docker-container
+	docker login
+	docker tag raft:local su225/raft:$(VERSION)
+	docker push su225/raft:$(VERSION)
 
 clean:
 	rm -rf raft
