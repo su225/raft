@@ -162,11 +162,10 @@ cluster_node_info.each do |node_info|
     base_election_timeout += 1500
 end
 
-if run_cluster
-    puts command_for_node[0]
-    puts command_for_node[1]
-    puts command_for_node[2]
+puts 'Please run these commands in separate terminal windows to launch'
+command_for_node.each {|cmd| puts cmd}
 
+if run_cluster
     # TODO: fix this later. Find a better way of doing this
     `tmux new-session "#{command_for_node[0]}" \\\; \
         split-window "#{command_for_node[1]}" \\\; \
