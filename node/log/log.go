@@ -313,11 +313,7 @@ func (wal *WriteAheadLogManagerImpl) handleStartWriteAheadLogManager(state *writ
 		logfield.Component: writeAheadLog,
 		logfield.Event:     "DESTROY",
 	}).Infoln("started write-ahead log manager")
-
-	if err := wal.SnapshotHandler.Start(); err != nil {
-		return err
-	}
-	return nil
+	return wal.SnapshotHandler.Start()
 }
 
 func (wal *WriteAheadLogManagerImpl) handleDestroyWriteAheadLogManager(state *writeAheadLogManagerState, cmd *destroyWriteAheadLogManager) error {

@@ -640,20 +640,14 @@ func (sh *RealSnapshotHandler) doApplyEntry(epoch, index uint64, entry Entry) er
 // If there is an error then it is returned
 func (sh *RealSnapshotHandler) doApplyUpsertEntry(epoch, index uint64, upsert *UpsertEntry) error {
 	key, value := upsert.Key, upsert.Value
-	if err := sh.AddKeyValuePair(epoch, key, value); err != nil {
-		return err
-	}
-	return nil
+	return sh.AddKeyValuePair(epoch, key, value)
 }
 
 // doApplyDeleteEntry deletes the key-value pair with the given key in the snapshot
 // with the given epoch. If it does not exist or already deleted then it is a no-op
 func (sh *RealSnapshotHandler) doApplyDeleteEntry(epoch, index uint64, delEntry *DeleteEntry) error {
 	key := delEntry.Key
-	if err := sh.RemoveKeyValuePair(epoch, key); err != nil {
-		return err
-	}
-	return nil
+	return sh.RemoveKeyValuePair(epoch, key)
 }
 
 // handleAddKVPair adds the key-value pair to the given epoch of the snapshot. If the key already

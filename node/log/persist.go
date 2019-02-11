@@ -80,10 +80,7 @@ func (ep *FileBasedEntryPersistence) PersistEntry(index uint64, entry Entry) err
 		return marshalErr
 	}
 	entryFilePath := ep.getEntryFilePath(index)
-	if writeErr := ioutil.WriteFile(entryFilePath, marshaledEntry, 0600); writeErr != nil {
-		return writeErr
-	}
-	return nil
+	return ioutil.WriteFile(entryFilePath, marshaledEntry, 0600)
 }
 
 // RetrieveEntry retrieves entry for the given index. Here it just reads the file,
@@ -188,10 +185,7 @@ func (mp *FileBasedMetadataPersistence) PersistMetadata(metadata *WriteAheadLogM
 	if marshalErr != nil {
 		return marshalErr
 	}
-	if writeErr := ioutil.WriteFile(mp.MetadataPath, marshaledBytes, 0600); writeErr != nil {
-		return writeErr
-	}
-	return nil
+	return ioutil.WriteFile(mp.MetadataPath, marshaledBytes, 0600)
 }
 
 // RetrieveMetadata reads the metadata from the file specified, parses the JSON and returns the

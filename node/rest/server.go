@@ -144,10 +144,7 @@ func (s *APIServer) Destroy() error {
 		logfield.Component: apiServer,
 		logfield.Event:     "DESTROY",
 	}).Debugf("shutting down REST server")
-	if shutdownErr := s.Server.Shutdown(shutdownCtx); shutdownErr != nil {
-		return shutdownErr
-	}
-	return nil
+	return s.Server.Shutdown(shutdownCtx)
 }
 
 type handleOrForwardAction uint8

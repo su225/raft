@@ -60,10 +60,7 @@ func (p *FileBasedRaftStatePersistence) PersistRaftState(state *RaftDurableState
 	if marshalErr != nil {
 		return marshalErr
 	}
-	if writeErr := ioutil.WriteFile(p.StateFilePath, marshalBytes, 0600); writeErr != nil {
-		return writeErr
-	}
-	return nil
+	return ioutil.WriteFile(p.StateFilePath, marshalBytes, 0600)
 }
 
 // RetrieveRaftState retrieves raft state from the speicified file. If there
