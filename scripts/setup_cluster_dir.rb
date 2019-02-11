@@ -46,14 +46,18 @@ cluster_size = 3
 # all cluster data is stored for local testing
 cluster_dir = './local-cluster'
 
+# run_cluster runs the cluster locally (uses Tmux)
+run_cluster = false
+
 OptionParser.new do |opts|
     opts.banner = "Usage: setup_cluster_dir.rb [options]"
 
-    opts.on('-p', '--nodeid-prefix', 'Prefix for generated node ID') { |v| nodeid_prefix = v }
-    opts.on('-c', '--rpcport-start', 'Start of rpc-server port range') { |v| rpcport_start = v.to_i }
-    opts.on('-a', '--apiport-start', 'Start of api-server port range') { |v| apiport_start = v.to_i }
-    opts.on('-s', '--cluster-size', 'Size of the cluster') { |v| cluster_size = v.to_i }
-    opts.on('-d', '--cluster-dir', 'Root directory for cluster') { |v| cluster_dir = v }
+    opts.on('--run-cluster', 'If this flag is on, then cluster is launched') { |v| run_cluster = true }
+    opts.on('--nodeid-prefix PREFIX', 'Prefix for generated node ID') { |v| nodeid_prefix = v }
+    opts.on('--rpcport-start RPCPORT_START', 'Start of rpc-server port range') { |v| rpcport_start = v.to_i }
+    opts.on('--apiport-start APIPORT_START', 'Start of api-server port range') { |v| apiport_start = v.to_i }
+    opts.on('--cluster-size CLUSTER_SIZE', 'Size of the cluster') { |v| cluster_size = v.to_i }
+    opts.on('--cluster-dir CLUSTER_DIR', 'Root directory for cluster') { |v| cluster_dir = v }
 end.parse!
 
 # NodeInfo represents the information on a particular node in the
@@ -158,13 +162,15 @@ cluster_node_info.each do |node_info|
     base_election_timeout += 1500
 end
 
-puts command_for_node[0]
-puts command_for_node[1]
-puts command_for_node[2]
+if run_cluster
+    puts command_for_node[0]
+    puts command_for_node[1]
+    puts command_for_node[2]
 
-# TODO: fix this later. Find a better way of doing this
-`tmux new-session "#{command_for_node[0]}" \\\; \
-      split-window "#{command_for_node[1]}" \\\; \
-      split-window "#{command_for_node[2]}" \\\; \
-      select-layout tiled
+    # TODO: fix this later. Find a better way of doing this
+    `tmux new-session "#{command_for_node[0]}" \\\; \
+        split-window "#{command_for_node[1]}" \\\; \
+        split-window "#{command_for_node[2]}" \\\; \
+        select-layout tiled
 `
+end
