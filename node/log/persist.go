@@ -145,7 +145,6 @@ func getPersistableEntry(entry Entry) *persistableEntry {
 			TermID:        0,
 		}
 	}
-	return nil
 }
 
 // getInMemEntry converts the entry from persistable format to the in-memory format. If the
@@ -166,7 +165,6 @@ func getInMemEntry(entry *persistableEntry) Entry {
 	default:
 		return &SentinelEntry{}
 	}
-	return nil
 }
 
 // FileBasedMetadataPersistence persists metadata to the file. The metadata
