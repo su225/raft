@@ -70,3 +70,43 @@ If you use the `setup_cluster_dir.rb` it will generate the cluster configuration
     {"node_id":"node-3","rpc_url":"localhost:6668","api_url":"localhost:7779"}
 ]
 ```
+
+### Running an individual node locally
+If you use the `setup_cluster_dir.rb`  then it should output the commands to run in separate terminals for each of the nodes. If you have setup your own directory structure and wants to tweak certain parameters then you have to run the command locally. The parameters it accepts are listed below
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| --id      |         | This field is required. It denotes the ID of this node (node_id field in cluster configuration file)
+| --api-port | 6666   | This field is required. It denotes the port used by this node for the REST server through which the client can contact this node |
+| --rpc-port | 6667   | This field is required. It denotes the port used by this node for RPC server (which listens for protocol messages) |
+| --log-entry-path | . | This field is required. It is the directory where write-ahead log entries are stored |
+| --log-metadata-path | . | This field is required. It denotes the directory where the metadata of the write-ahead log is stored |
+| --raft-state-path | . | This field is required. It denotes the directory where Raft consensus protocol related state is stored |
+| --join-mode | cluster-file | It specifies how cluster is formed. The default value "cluster-file" means that a cluster configuration file must be given. In future "k8s" mode will be supported for running on Kubernetes |
+| --cluster-config-path | . | This field must be specified only when the joining mode is "cluster-file". Otherwise it will be ignored |
+| --election-timeout | 2000ms | Election timeout in milliseconds. It is recommended to set different election timeouts for each nodes so that all of them won't start election at the same time and cause liveliness issues. This must be much more than heartbeat interval |
+| --heartbeat-interval | 500ms | Heartbeat interval in milliseconds - that is, the time between two heartbeats sent by the leader node. It is recommended to keep this many times less than the election timeout to avoid unnecessary liveliness issues |
+| --rpc-timeout | 1000ms | RPC timeout in milliseconds. The other node is expected to respond to protocol messages within this time |
+| --api-timeout | 2000ms | API timeout in milliseconds. The time after which a REST call is timed out |
+| --api-fwd-timeout | 1500ms | API forward timeout in milliseconds. When the API call hits a non-leader node it is forwarded to the leader. The leader node should then respond within this time. Otherwise the call is considered as failed |
+| --max-conn-retry-attempts | 5 | This is optional. It denotes the maximum number of connection retry attempts |
+| --snapshot-path | . | This is required. Snapshot path is the directory where snapshot and its metadata are stored. This is needed for log compaction and fast forwarding features |
+
+Here is an example command to launch a raft node. Switch to the directory where Raft's binary is built (it is usually the root directory in the repository)
+```shell
+    ./raft --id=node-1 \
+           --api-port=7777 \
+           --rpc-port=6666 \
+           --log-entry-path=./local-cluster/node-1/data/entry \
+           --log-metadata-path=./local-cluster/node-1/data/metadata/metadata.json \
+           --raft-state-path=./local-cluster/node-1/state/state.json \
+           --join-mode=cluster-file \
+           --cluster-config-path=./local-cluster/node-1/cluster/config.json \
+           --election-timeout=3000 \
+           --heartbeat=500 \
+           --rpc-timeout=1000 \
+           --api-timeout=2000 \
+           --api-fwd-timeout=1500 \
+           --max-conn-retry-attempts=3 \
+           --snapshot-path=./local-cluster/node-1/snapshot 
+```
