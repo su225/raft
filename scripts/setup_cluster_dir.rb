@@ -149,7 +149,7 @@ cluster_node_info.each do |node_info|
         --log-entry-path=#{node_directories[:entry_dir]} \
         --log-metadata-path=#{node_directories[:metadata_dir]}/metadata.json \
         --raft-state-path=#{node_directories[:state_dir]}/state.json \
-        --join-mode=static \
+        --join-mode=cluster-file \
         --cluster-config-path=#{node_directories[:cluster_config_dir]}/config.json \
         --election-timeout=#{base_election_timeout} \
         --heartbeat=#{heartbeat_interval} \
