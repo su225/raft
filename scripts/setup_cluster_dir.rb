@@ -24,6 +24,8 @@ require 'optparse'
 require 'fileutils'
 require 'json'
 
+require_relative './node_info'
+
 # nodeid_prefix defines the prefix of each node in
 # the cluster. Default value is "node"
 nodeid_prefix = "node"
@@ -59,35 +61,6 @@ OptionParser.new do |opts|
     opts.on('--cluster-size CLUSTER_SIZE', 'Size of the cluster') { |v| cluster_size = v.to_i }
     opts.on('--cluster-dir CLUSTER_DIR', 'Root directory for cluster') { |v| cluster_dir = v }
 end.parse!
-
-# NodeInfo represents the information on a particular node in the
-# raft cluster like its name, url of RPC and API servers. This can
-# also be serialized and deserialized to/from JSON
-class NodeInfo
-    attr_accessor :node_id, :rpc_url, :api_url, :rpc_port, :api_port
-
-    def initialize(node_id, rpc_port, api_port)
-        @node_id = node_id
-        @rpc_port, @api_port = rpc_port, api_port
-        @rpc_url = "localhost:#{rpc_port}"
-        @api_url = "localhost:#{api_port}"
-    end
-    
-    # Convert NodeInfo to JSON format
-    def to_json(*a)
-        {
-            node_id: @node_id, 
-            rpc_url: @rpc_url, 
-            api_url: @api_url
-        }.to_json(*a)
-    end
-
-    # Parse JSON and try to get NodeInfo
-    def self.from_json string
-        data = JSON.load string
-        self.new data['node_id'], data['rpc_url'], data['api_url'] 
-    end
-end
 
 # Generate node information in JSON from given parameters
 cluster_node_info = (1..cluster_size).map do |serial_no|
@@ -159,7 +132,6 @@ cluster_node_info.each do |node_info|
         --max-conn-retry-attempts=#{max_conn_retry_attempts} \
         --snapshot-path=#{node_directories[:snapshot_dir]} 
     """
-    base_election_timeout += 1500
 end
 
 puts 'Please run these commands in separate terminal windows to launch'
