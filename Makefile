@@ -4,13 +4,8 @@ build: gen-pb
 build-release:
 	go build .
 
-test-all:
-	go test -timeout=3s ./node/cluster
-	go test -timeout=3s ./node/election
-	go test -timeout=3s ./node/heartbeat
-	go test -timeout=3s ./node/log
-	go test -timeout=3s ./node/state
-	go test -timeout=3s ./node/replication
+test-all: gen-pb
+	go test -v -race ./...
 
 test:
 	go test -timeout=3s $(PACKAGE) 
