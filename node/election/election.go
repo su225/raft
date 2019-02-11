@@ -156,8 +156,8 @@ func (e *RealLeaderElectionManager) commandServer() {
 func (e *RealLeaderElectionManager) startElectionTimer(cmdChan <-chan electionTimerCommand) {
 	go func() {
 		stopTimer := false
-		timeoutMultiplier := uint64(rand.Int63n(2))
-		timeout := time.Duration(e.ElectionTimeoutInMillis*timeoutMultiplier+1) * time.Millisecond
+		timeoutMultiplier := uint64(rand.Int63n(2)) + 1
+		timeout := time.Duration(e.ElectionTimeoutInMillis*timeoutMultiplier) * time.Millisecond
 		for !stopTimer {
 			select {
 			case c := <-cmdChan:
