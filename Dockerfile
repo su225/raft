@@ -36,10 +36,8 @@ RUN mkdir node && \
     mkdir -p node/cluster-data/log/metadata && \
     mkdir -p node/cluster-data/state && \
     mkdir -p node/cluster-data/snapshot && \
-    mkdir -p node/cluster-data/cluster && \
-    adduser -S -D -H -h /node rnodeuser
-USER rnodeuser
-
+    mkdir -p node/cluster-data/cluster
+    
 # Define the volumes for this container
 # that must be supplied from the host
 VOLUME node/cluster-data/log
