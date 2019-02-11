@@ -17,10 +17,12 @@ notifications:
 env:
 - GO111MODULE=on
 
-before_script:
+install:
 - chmod +x scripts/install_protoc3.sh
 - scripts/install_protoc3.sh
 - export PATH="$PWD/protoc3/bin":$PATH
+
+before_script:
 - make gen-pb
 
 script:
