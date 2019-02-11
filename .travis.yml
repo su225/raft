@@ -18,8 +18,11 @@ env:
 - GO111MODULE=on
 
 before_script:
+- chmod +x scripts/install_protoc3.sh
+- scripts/install_protoc3.sh
+- export PATH="$PWD/protoc3/bin":$PATH
 - make gen-pb
-- go vet ./...
 
 script:
+- go vet ./...
 - make test-all
