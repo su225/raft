@@ -3,6 +3,8 @@ Implementation of a simple key-value store based on Raft consensus protocol in G
 
 [![Build Status](https://travis-ci.org/su225/raft.svg?branch=master)](https://travis-ci.org/su225/raft)
 [![Go Report Card](https://goreportcard.com/badge/github.com/su225/raft)](https://goreportcard.com/report/github.com/su225/raft)
+[![Maintainability](https://api.codeclimate.com/v1/badges/e3ba9542f7c1d78b7b35/maintainability)](https://codeclimate.com/github/su225/raft/maintainability)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/e3ba9542f7c1d78b7b35/test_coverage)](https://codeclimate.com/github/su225/raft/test_coverage)
 
 ## Table of contents
 1. [Quick start](#start-a-3-node-cluster-locally-with-default-settings)
