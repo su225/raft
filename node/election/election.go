@@ -21,6 +21,8 @@
 package election
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -58,6 +60,7 @@ var electionMgrIsDestroyedErr = &common.ComponentIsDestroyedError{ComponentName:
 // heartbeats to other cluster nodes to establish its authority.
 type RealLeaderElectionManager struct {
 	ElectionTimeoutInMillis uint64
+	CurrentNodeID           string
 	LeaderElectionAlgorithm
 
 	commandChannel  chan leaderElectionManagerCommand
@@ -68,11 +71,13 @@ type RealLeaderElectionManager struct {
 // manager with given state manager and write-ahead log manager instances.
 func NewRealLeaderElectionManager(
 	electionTimeout uint64,
+	currentNodeID string,
 	algo LeaderElectionAlgorithm,
 ) *RealLeaderElectionManager {
 	return &RealLeaderElectionManager{
 		ElectionTimeoutInMillis: electionTimeout,
 		LeaderElectionAlgorithm: algo,
+		CurrentNodeID:           currentNodeID,
 		commandChannel:          make(chan leaderElectionManagerCommand),
 		listenerChannel:         make(chan state.RaftStateManagerEvent),
 	}
@@ -156,13 +161,14 @@ func (e *RealLeaderElectionManager) commandServer() {
 func (e *RealLeaderElectionManager) startElectionTimer(cmdChan <-chan electionTimerCommand) {
 	go func() {
 		stopTimer := false
-		timeoutMultiplier := 1 + (rand.Uint64() % 5)
-		timeout := time.Duration(e.ElectionTimeoutInMillis*timeoutMultiplier) * time.Millisecond
-		logrus.WithFields(logrus.Fields{
-			logfield.Component: leaderElectionMgr,
-			logfield.Event:     "ELECTION-TIMEOUT",
-		}).Debugf("timer set with multiplier %d", timeoutMultiplier)
+		randSource := e.getRandomTimeoutMultiplierSource()
 		for !stopTimer {
+			timeoutMultiplier := 1 + (uint64(randSource.Int63()) % 5)
+			timeout := time.Duration(e.ElectionTimeoutInMillis*timeoutMultiplier) * time.Millisecond
+			logrus.WithFields(logrus.Fields{
+				logfield.Component: leaderElectionMgr,
+				logfield.Event:     "ELECTION-TIMEOUT",
+			}).Debugf("timer set with multiplier %d", timeoutMultiplier)
 			select {
 			case c := <-cmdChan:
 				switch c {
@@ -176,6 +182,14 @@ func (e *RealLeaderElectionManager) startElectionTimer(cmdChan <-chan electionTi
 			}
 		}
 	}()
+}
+
+func (e *RealLeaderElectionManager) getRandomTimeoutMultiplierSource() rand.Source {
+	randSeed := fmt.Sprintf("%s:%v", e.CurrentNodeID, time.Now().UnixNano())
+	hash := sha256.Sum256([]byte(randSeed))
+	seed := int64(hash[0])
+	src := rand.NewSource(seed)
+	return rand.New(src)
 }
 
 func (e *RealLeaderElectionManager) stopElectionTimer(cmdChan chan<- electionTimerCommand) {

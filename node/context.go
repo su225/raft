@@ -199,6 +199,7 @@ func NewContext(config *Config) *Context {
 	)
 	leaderElectionManager := election.NewRealLeaderElectionManager(
 		uint64(config.ElectionTimeoutInMillis),
+		config.NodeID,
 		leaderElectionAlgo,
 	)
 	realRaftProtobufServer := server.NewRealRaftProtobufServer(
