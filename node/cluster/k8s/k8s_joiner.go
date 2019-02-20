@@ -113,6 +113,10 @@ func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
 			APIURL: fmt.Sprintf("%s:%d", podName, kj.APIPort),
 		}
 		discoveredNodes = append(discoveredNodes, nodeInfo)
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: k8sJoiner,
+			logfield.Event:     "K8S-DISCOVERY",
+		}).Infof("discovered raft-node in: %v", nodeInfo)
 	}
 	return discoveredNodes, nil
 }
