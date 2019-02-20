@@ -56,6 +56,7 @@ read -r -d '' NODE_ARGS <<EOM
     --api-fwd-timeout=${API_FWD_TIMEOUT_MILLIS}
     --max-conn-retry-attempts=${MAX_CONN_RETRY_ATTEMPTS}
     --snapshot-path=${SNAPSHOT_PATH}
+    --cluster-config-path=${CLUSTER_CONFIG_PATH}
 EOM
 
 if [[ -z "${RUNNING_IN_K8S_ENV}" ]]; then
@@ -65,6 +66,8 @@ if [[ -z "${RUNNING_IN_K8S_ENV}" ]]; then
         --join-mode=cluster-file \
         --cluster-config-path=${CLUSTER_CONFIG_PATH}
 else
-    echo 'Currently running in Kubernetes environment. Not supported yet'
-    exit 1
+    echo 'Currently running in Kubernetes environment.'
+    ./raft ${NODE_ARGS} \
+        --join-mode=k8s \
+        --cluster-config-path=${CLUSTER_DIR_ROOT}/cluster
 fi

@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
 	"github.com/su225/raft/node/cluster"
+	"github.com/su225/raft/node/cluster/k8s"
 	"github.com/su225/raft/node/datastore"
 	"github.com/su225/raft/node/election"
 	"github.com/su225/raft/node/heartbeat"
@@ -348,7 +349,11 @@ func (ctx *Context) Destroy() error {
 
 func getJoiner(config *Config) cluster.Joiner {
 	if config.JoinMode == KubernetesJoinMode {
-		panic("k8s-mode is not yet implemented")
+		return k8s.NewKubernetesJoiner(
+			config.ClusterConfigPath,
+			config.RPCPort,
+			config.APIPort,
+		)
 	}
 	return cluster.NewStaticFileBasedJoiner(config.ClusterConfigPath)
 }
