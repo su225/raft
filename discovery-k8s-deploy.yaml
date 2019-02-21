@@ -1,0 +1,49 @@
+# Define the deployment which contains the kubernetes
+# discovery provider for raft nodes. In order to see the
+# definition of container su225/k8s-clustering:0 then see
+# another repo k8s-clustering (https://github.com/su225/k8s-clustering)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-discovery-provider
+  namespace: raft-k8s
+  labels:
+    app: raft
+    tier: discovery
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: raft
+  template:
+    metadata:
+      labels:
+        app: raft
+        tier: discovery
+        version: v0.1
+    spec:
+      containers:
+      - name: raft-discovery-provider
+        image: su225/k8s-clustering:0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8888
+---
+# Define the service which is accessible within
+# the cluster. Raft nodes running in kubernetes
+# should be able to hit this service to get the
+# pods with the given label in the given namespace
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-discovery-service
+  namespace: raft-k8s
+  labels:
+    version: v0.1
+spec:
+  selector:
+    app: raft
+    version: v0.1
+  ports:
+  - protocol: TCP
+    port: 8888
