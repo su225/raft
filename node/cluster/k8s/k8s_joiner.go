@@ -74,15 +74,7 @@ func NewKubernetesJoiner(
 // couldn't be contacted or there is some apiserver related error and so on.
 func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
 	// First, get the address of the kubernetes discovery provider
-	providerHostPort, err := kj.getDiscoveryProviderHostPort()
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.Component:   k8sJoiner,
-			logfield.ErrorReason: err.Error(),
-			logfield.Event:       "GET-HOSTPORT",
-		}).Errorf("cannot get host:port of the k8s discovery provider")
-		return []cluster.NodeInfo{}, err
-	}
+	providerHostPort := kj.getDiscoveryProviderHostPort()
 	// Second, get the cluster label and the current namespace
 	raftNamespace, raftLabel, err := kj.getRaftClusterID()
 	if err != nil {
@@ -123,9 +115,8 @@ func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
 
 // getDiscoveryProviderHostPort returns the host:port of the kubernetes
 // discovery provider service. If it couldn't find it error is returned
-func (kj *KubernetesJoiner) getDiscoveryProviderHostPort() (string, error) {
-	providerHostPortPath := kj.getClusterConfigFilePath("provider-addr")
-	return kj.readFileContentsAsString(providerHostPortPath)
+func (kj *KubernetesJoiner) getDiscoveryProviderHostPort() string {
+	return os.Getenv("K8S_DISCOVERY_PROVIDER_URL")
 }
 
 // getRaftClusterID returns the namespace and the kubernetes pod label corresponding
