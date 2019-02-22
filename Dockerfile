@@ -32,17 +32,19 @@ FROM alpine:3.9
 # Create a new user to run the raft node and
 # switch to that user
 RUN mkdir node && \
-    mkdir -p node/cluster-data/log/data && \
-    mkdir -p node/cluster-data/log/metadata && \
+    mkdir -p node/cluster-data/log && \
     mkdir -p node/cluster-data/state && \
     mkdir -p node/cluster-data/snapshot && \
     mkdir -p node/cluster-data/cluster
     
 # Define the volumes for this container
 # that must be supplied from the host
-VOLUME node/cluster-data/log
-VOLUME node/cluster-data/state
-VOLUME node/cluster-data/snapshot
+VOLUME [ \
+    "node/cluster-data/log", \
+    "node/cluster-data/state", \
+    "node/cluster-data/snapshot", \
+    "node/cluster-data/cluster"\
+]
 
 # Copy the binary from the build container
 COPY --from=build /go/src/github.com/su225/raft/raft /node
