@@ -1,5 +1,5 @@
 # Raft
-Implementation of a simple key-value store based on Raft consensus protocol in Go. It supports add, delete and query operations on a particular key. Original Raft consensus protocol paper - [link](https://web.stanford.edu/~ouster/cgi-bin/papers/raft-atc14).
+Implementation of a simple key-value store based on Raft consensus protocol in Go. It supports add, delete and query operations on a particular key. Original Raft consensus protocol paper - [link](https://web.stanford.edu/~ouster/cgi-bin/papers/raft-atc14). It started as a project to learn Go and Raft consensus protocol.
 
 [![Build Status](https://travis-ci.org/su225/raft.svg?branch=master)](https://travis-ci.org/su225/raft)
 [![Go Report Card](https://goreportcard.com/badge/github.com/su225/raft)](https://goreportcard.com/report/github.com/su225/raft)
@@ -20,6 +20,16 @@ Assuming you have Ruby, Go and Tmux installed in your computer, run the followin
 ```shell
 make clean && make run-local-cluster
 ```
+If you have docker installed, a cluster of raft Docker containers can be created by running the following command. It creates a 3-node cluster of docker containers connected to a local network called "dockerraft". Port mapping will also be established so that the REST operations and queries described next are still applicable.
+```shell
+make clean && make run-docker-cluster
+```
+
+Once done, you could destroy the local docker cluster with the following command
+```shell
+make destroy-docker-cluster
+```
+
 This command if successful would create a 3-node cluster with nodes _node-1_, _node-2_ and _node-3_. The REST server in each of these nodes will be listening on ports 7777, 7778 and 7779 respectively. You can then use your favorite REST client to make requests to one of the nodes in the cluster and start testing. The example uses curl (you can also use something like Postman)
 
 1. Create a new key-value pair (a -> 1)
@@ -86,7 +96,12 @@ If you use the `setup_cluster_dir.rb` it will generate the cluster configuration
 ```
 
 ### Running an individual node locally
-If you use the `setup_cluster_dir.rb`  then it should output the commands to run in separate terminals for each of the nodes. If you have setup your own directory structure and wants to tweak certain parameters then you have to run the command locally. The parameters it accepts are listed below
+Use the command to get the launch commands for each node which can be used to launch each node in a separate terminal
+```shell
+scripts/cluster_manager.rb --generate --launch --dry-run
+```  
+You can also add `--docker-mode` flag to the above command get the commands for running the local cluster on docker (make sure that the network to which the containers are attached exists)
+
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
