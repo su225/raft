@@ -165,10 +165,6 @@ func (e *RealLeaderElectionManager) startElectionTimer(cmdChan <-chan electionTi
 		for !stopTimer {
 			timeoutMultiplier := 1 + (uint64(randSource.Int63()) % 5)
 			timeout := time.Duration(e.ElectionTimeoutInMillis*timeoutMultiplier) * time.Millisecond
-			logrus.WithFields(logrus.Fields{
-				logfield.Component: leaderElectionMgr,
-				logfield.Event:     "ELECTION-TIMEOUT",
-			}).Debugf("timer set with multiplier %d", timeoutMultiplier)
 			select {
 			case c := <-cmdChan:
 				switch c {
