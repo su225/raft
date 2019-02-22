@@ -2,4 +2,5 @@
 .cache
 *.md
 local-cluster
-raft
+./raft
+scripts/cluster_manager.rb
