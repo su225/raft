@@ -10,8 +10,8 @@ DEFAULT_API_PORT=7777
 # Define the directories
 CLUSTER_DIR_ROOT=./cluster-data
 
-DATA_PATH=${CLUSTER_DIR_ROOT}/log/data
-METADATA_PATH=${CLUSTER_DIR_ROOT}/log/metadata/metadata.json
+DATA_PATH=${CLUSTER_DIR_ROOT}/log
+METADATA_PATH=${CLUSTER_DIR_ROOT}/log/metadata.json
 STATE_PATH=${CLUSTER_DIR_ROOT}/state/state.json
 SNAPSHOT_PATH=${CLUSTER_DIR_ROOT}/snapshot
 
@@ -20,7 +20,7 @@ SNAPSHOT_PATH=${CLUSTER_DIR_ROOT}/snapshot
 # look for the file containing labels
 DEFAULT_JOIN_MODE='cluster-file'
 
-DEFAULT_ELECTION_TIMEOUT_MILLIS=2000
+ELECTION_TIMEOUT_MILLIS=2000
 HEARTBEAT_INTERVAL_MILLIS=500
 
 RPC_TIMEOUT_MILLIS=1250
@@ -35,11 +35,10 @@ if [[ -z "${NODE_ID}" ]]; then
     exit 1
 fi
 
-# Check if election timeout is specified. If it is
-# not specified then terminate
-if [[ -z "${ELECTION_TIMEOUT_MILLIS}" ]]; then
-    echo 'ELECTION_TIMEOUT_MILLIS environment variable is not specified'
-    exit 1
+# Check if the cluster configuration path environment
+# variable is specified. Otherwise just terminate
+if [[ -z "${CLUSTER_CONFIG_PATH}" ]]; then
+    echo 'CLUSTER_CONFIG_PATH environment variable is not specified'
 fi
 
 # Common parameters for both modes of cluster formation
