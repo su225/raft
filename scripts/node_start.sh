@@ -66,7 +66,15 @@ if [[ -z "${RUNNING_IN_K8S_ENV}" ]]; then
         --cluster-config-path=${CLUSTER_CONFIG_PATH}
 else
     echo 'Currently running in Kubernetes environment.'
-    ./raft ${NODE_ARGS} \
-        --join-mode=k8s \
-        --cluster-config-path=${CLUSTER_DIR_ROOT}/cluster
+    NODE_ARGS="${NODE_ARGS} --join-mode=k8s --cluster-config-path=${CLUSTER_DIR_ROOT}/cluster"
+    
+    ## For debugging purposes only
+    echo "Arguments for the node: ${NODE_ARGS}"
+    # Print environment variables
+    env
+    # Print the info provided by DownwardAPI
+    # Labels, annotations, namespaces and so on
+    cat ${CLUSTER_DIR_ROOT}/cluster/*
+
+    ./raft ${NODE_ARGS}
 fi
