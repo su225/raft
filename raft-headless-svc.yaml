@@ -1,0 +1,22 @@
+# Define the service for the raft cluster such that the
+# entire cluster appears as a single unit and the distribution
+# is completely transparent to the client.
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft000
+  namespace: raft-k8s
+  labels:
+    app: raft
+    tier: datastore
+    raft-cluster/id: raft000
+    version: v0.1
+spec:
+  selector:
+    app: raft
+    tier: datastore
+    raft-cluster/id: raft000
+  ports:
+  - protocol: TCP
+    port: 7777
+  clusterIP: None

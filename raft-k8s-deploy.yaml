@@ -4,167 +4,183 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: raft-node
-  namespace: raft-k8s
+  name: &raftClusterID raft000
+  namespace: &ns raft-k8s
   labels:
     app: raft
-    raft-cluster-id: raft000
+    raft-cluster/id: *raftClusterID
 spec:
   selector:
     matchLabels:
       app: raft
-      raft-cluster-id: raft000
-    serviceName: "raft-node"
-    replicas: 3
+      tier: datastore
+      raft-cluster/id: *raftClusterID
+  replicas: 3
+  serviceName: *raftClusterID
     
-    # Define the pod template for the raft-node
-    # its volumes, environment, ports and so on
-    template:
-      metadata:
-        name: raft-node
-        namespace: raft-k8s
-        labels:
-          app: raft
-          tier: datastore
-          raft-cluster-id: raft000
-      
-      # Now specify the port that makes up the
-      # raft cluster.
-      spec:
-        containers:
-        - name: raft-node
-          image: su225/raft:0
-          imagePullPolicy: Always
-          # Specify the ports to be exposed in
-          # the pod for communication with other nodes
-          ports:
-          - name: rpc
-            containerPort: 6666
-          - name: api
-            containerPort: 7777
-          
-          # Specify the environment variables required
-          # for the start of the container as well as
-          # the cluster formation.
-          env:
-          # Turn on RUNNING_IN_K8S_ENV to pick the
-          # kubernetes joiner for cluster formation
-          - name: RUNNING_IN_K8S_ENV
-            value: "true"
+  # Define the pod template for the raft-node
+  # its volumes, environment, ports and so on
+  template:
+    metadata:
+      name: node
+      namespace: *ns
+      labels:
+        app: raft
+        tier: datastore
+        raft-cluster/id: *raftClusterID
+        raft-cluster/size: "3" # must be same as replicas in stateful set spec
+        raft-cluster/svcName: *raftClusterID
+    
+    # Now specify the port that makes up the
+    # raft cluster.
+    spec:
+      containers:
+      - name: raft-node
+        image: su225/raft:0
+        imagePullPolicy: Always
+        # Specify the ports to be exposed in
+        # the pod for communication with other nodes
+        ports:
+        - name: rpc
+          containerPort: 6666
+        - name: api
+          containerPort: 7777
+        
+        # Specify the environment variables required
+        # for the start of the container as well as
+        # the cluster formation.
+        env:
+        # Turn on RUNNING_IN_K8S_ENV to pick the
+        # kubernetes joiner for cluster formation
+        - name: RUNNING_IN_K8S_ENV
+          value: "true"
 
-          # Specify the node ID of the given node
-          - name: NODE_ID
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.name
-          
-          # Specify the election timeout
-          # TODO: Remove this
-          - name: ELECTION_TIMEOUT_MILLIS
-            value: "3000"
-          
-          # Host and port of the kubernetes discovery
-          # provider service. Ideally this should not
-          # be hardcoded and the name must be encoded
-          - name: K8S_DISCOVERY_PROVIDER_URL
-            value: "k8s-discovery-service:8888"
+        # Specify the node ID of the given node
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        
+        # Specify the path for the cluster configuration
+        # In kubernetes mode, it must be a directory instead
+        # of a configuration file. To this directory the labels
+        # and namespace information must be mounted (using
+        # downward API)
+        - name: CLUSTER_CONFIG_PATH
+          value: &clusterConfigPath "/node/cluster-data/cluster"
 
         # Specify the volumes to be mounted
         # to the container to store data
         volumeMounts:
         # Volume to keep write-ahead log entries
         # and the metadata associated with them
-        - name: log
+        - name: &log log
           mountPath: /node/cluster-data/log
     
         # Volume to persist raft state
-        - name: state
+        - name: &state state
           mountPath: /node/cluster-data/state
     
         # Volume to persist snapshot
-        - name: snapshot
+        - name: &snapshot snapshot
           mountPath: /node/cluster-data/snapshot
-    
-        # volume containing the labels on the pod
-        - name: cluster
-          mountPath: /node/cluster-data/cluster
+        
+        # Volume to get data for cluster formation
+        - name: &cluster cluster
+          mountPath: *clusterConfigPath
           readOnly: true
+        
+      # Volumes represent the volumes that can be
+      # mounted to the container (it can be either
+      # persistent or non-persistent)
+      volumes:
+      - name: *cluster
+        downwardAPI:
+          items:
+            # labels represents the labels on the pod
+          - path: "labels"
+            fieldRef:
+              fieldPath: metadata.labels
 
-        # Define the volumes - the actual storage for
-        # the data and the downward API information like
-        # pod labels, annotations, namespace and so on
-        volumes:
-        - name: cluster
-          downwardAPI:
-            items:
-            # Write all the labels to a file "labels"
-            # in the cluster directory
-            - path: "labels"
-              fieldRef:
-                fieldPath: metadata.labels  
-            
-            # Write the current namespace to "k8s-ns"
-            # in the cluster directory
-            - path: "k8s-ns"
-              fieldRef:
-                fieldPath: metadata.namespace
+            # namespace represents the namespace in
+            # the pod is placed in Kubernetes
+          - path: "k8s-ns"
+            fieldRef:
+              fieldPath: metadata.namespace
 
-    volumeClaimTemplates:
-    # Volume claim template for storing write-ahead
-    # log entries and associated metadata. Currently
-    # this only works for DigitalOcean block storage
-    # as specified by "do-block-storage". Ideally, this
-    # should have been portable.
-    - metadata:
-        name: log
-        namespace: raft-k8s
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        storageClassName: do-block-storage
-        resources:
-          requests:
-            storage: 1Gi
-    
-    # Volume claim template for storing raft state
-    # This does not require a lot of space. But 1Gi
-    # looks like minimum space?
-    - metadata:
-        name: state
-        namespace: raft-k8s
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        storageClassName: do-block-storage
-        resources:
+      # Define pod anti-affinity so that no two raft-nodes
+      # (pods in K8S lingo) are scheduled on the same node.
+      # Because if the node goes down it will take down multiple
+      # raft-nodes instead of one which greatly decreases the
+      # raft cluster availability
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - raft
+            topologyKey: "kubernetes.io/hostname"          
+      
+  volumeClaimTemplates:
+  # Volume claim template for storing write-ahead
+  # log entries and associated metadata. Currently
+  # this only works for DigitalOcean block storage
+  # as specified by "do-block-storage". Ideally, this
+  # should have been portable.
+  - metadata:
+      name: *log
+      namespace: *ns
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: do-block-storage
+      resources:
+        requests:
           storage: 1Gi
-    
-    # Volume claim template for storing snapshot data
-    # This might require lot of space
-    - metadata:
-        name: snapshot
-        namespace: raft-k8s
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        storageClassName: do-block-storage
-        resources:
+  
+  # Volume claim template for storing raft state
+  # This does not require a lot of space. But 1Gi
+  # looks like minimum space?
+  - metadata:
+      name: *state
+      namespace: *ns
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: do-block-storage
+      resources:
+        requests:
+          storage: 1Gi
+  
+  # Volume claim template for storing snapshot data
+  # This might require lot of space
+  - metadata:
+      name: *snapshot
+      namespace: *ns
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: do-block-storage
+      resources:
+        requests:
           storage: 5Gi
 ---
-# Define the service for the raft cluster such that the
-# entire cluster appears as a single unit and the distribution
-# is completely transparent to the client.
 apiVersion: v1
 kind: Service
 metadata:
-  name: raft-svc
+  name: raft-apiservice
   namespace: raft-k8s
   labels:
     app: raft
     tier: datastore
-    raft-cluster-id: raft000
-    version: 0.1
+    raft-cluster/id: raft000
+    version: v0.1
 spec:
   selector:
     app: raft
-    raft-cluster-id: raft000
+    tier: datastore
+    raft-cluster/id: raft000
   ports:
   - protocol: TCP
     port: 7777
+  type: LoadBalancer
