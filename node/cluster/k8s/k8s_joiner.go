@@ -22,15 +22,11 @@ package k8s
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/su225/raft/logfield"
@@ -38,7 +34,9 @@ import (
 )
 
 const k8sJoiner = "K8S-JOINER"
-const raftClusterIDLabel = "raft-cluster-id"
+const raftClusterIDLabel = "raft-cluster/id"
+const raftClusterSizeLabel = "raft-cluster/size"
+const raftClusterSvcNameLabel = "raft-cluster/svcName"
 
 // KubernetesJoiner is responsible for cluster formation when
 // the Raft cluster is running on Kubernetes. It contacts the
@@ -46,6 +44,7 @@ const raftClusterIDLabel = "raft-cluster-id"
 // given tag and returns the list of nodes.
 type KubernetesJoiner struct {
 	ClusterConfigPath string
+	NodeID            string
 	RPCPort           uint32
 	APIPort           uint32
 	kvRegex           *regexp.Regexp
@@ -58,10 +57,12 @@ const k8sLabelKVRegexp = `^(?P<key>\S+)="(?P<value>\S*)"$`
 // an assumption that API and RPC ports used by all raft-nodes are the same
 func NewKubernetesJoiner(
 	clusterConfigPath string,
+	nodeID string,
 	apiPort, rpcPort uint32,
 ) *KubernetesJoiner {
 	return &KubernetesJoiner{
 		ClusterConfigPath: clusterConfigPath,
+		NodeID:            nodeID,
 		APIPort:           apiPort,
 		RPCPort:           rpcPort,
 		kvRegex:           regexp.MustCompile(k8sLabelKVRegexp),
@@ -73,64 +74,84 @@ func NewKubernetesJoiner(
 // then it is returned. The error can be that the kubernetes discovery provider
 // couldn't be contacted or there is some apiserver related error and so on.
 func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
-	// First, get the address of the kubernetes discovery provider
-	providerHostPort := kj.getDiscoveryProviderHostPort()
-	// Second, get the cluster label and the current namespace
-	raftNamespace, raftLabel, err := kj.getRaftClusterID()
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.Component:   k8sJoiner,
-			logfield.ErrorReason: err.Error(),
-			logfield.Event:       "GET-CLUSTER-ID",
-		}).Errorf("cannot get the raft cluster identifier (app label and namespace)")
-		return []cluster.NodeInfo{}, err
-	}
-	// Third, query the discovery provider for the pods with the given
-	// label in the given namespace.
-	clusterPods, err := kj.getPodsInRaftCluster(providerHostPort, raftNamespace, raftLabel)
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			logfield.Component:   k8sJoiner,
-			logfield.ErrorReason: err.Error(),
-			logfield.Event:       "GET-CLUSTER-POD",
-		}).Errorf("error while getting pod names in the cluster")
-		return []cluster.NodeInfo{}, err
-	}
-	// Finally, build the list of raft-nodes discovered and return
 	discoveredNodes := []cluster.NodeInfo{}
-	for _, podName := range clusterPods {
-		nodeInfo := cluster.NodeInfo{
-			ID:     podName,
-			RPCURL: fmt.Sprintf("%s:%d", podName, kj.RPCPort),
-			APIURL: fmt.Sprintf("%s:%d", podName, kj.APIPort),
-		}
-		discoveredNodes = append(discoveredNodes, nodeInfo)
+	podLabels, err := kj.getRaftPodLabels()
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: err.Error(),
+			logfield.Component:   k8sJoiner,
+			logfield.Event:       "GET-LABELS",
+		}).Errorf("failed to get labels on the pod")
+		return discoveredNodes, err
+	}
+	clusterID, present := podLabels[raftClusterIDLabel]
+	if !present {
 		logrus.WithFields(logrus.Fields{
 			logfield.Component: k8sJoiner,
-			logfield.Event:     "K8S-DISCOVERY",
-		}).Infof("discovered raft-node in: %v", nodeInfo)
+			logfield.Event:     "GET-RAFT-CLUSTER-ID",
+		}).Warnf("couldn't find label: %s", raftClusterIDLabel)
+		return discoveredNodes, nil
+	}
+	clusterSize, present := podLabels[raftClusterSizeLabel]
+	if !present {
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: k8sJoiner,
+			logfield.Event:     "GET-RAFT-CLUSTER-SIZE",
+		}).Warnf("couldn't find label: %s", raftClusterSizeLabel)
+		return discoveredNodes, nil
+	}
+	clusterSvcName, present := podLabels[raftClusterSvcNameLabel]
+	if !present {
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: k8sJoiner,
+			logfield.Event:     "GET-RAFT-CLUSTER-SVC-NAME",
+		}).Warnf("couldn't find label: %s", raftClusterSvcNameLabel)
+		return discoveredNodes, nil
+	}
+	var intClusterSize int
+	_, err = fmt.Sscanf(clusterSize, "%d", &intClusterSize)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: err.Error(),
+			logfield.Component:   k8sJoiner,
+			logfield.Event:       "PARSE-RAFT-CLUSTER-SIZE",
+		}).Errorf("error while parsing %s as integer", clusterSize)
+		return discoveredNodes, err
+	}
+	ns, err := kj.getRaftClusterNamespace()
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			logfield.ErrorReason: err.Error(),
+			logfield.Component:   k8sJoiner,
+			logfield.Event:       "GET-POD-NAMESPACE",
+		}).Errorf("error while getting pod namespace")
+		return discoveredNodes, err
+	}
+	discoveredNodes = kj.getRaftClusterNodeInfo(clusterID, clusterSvcName, ns, intClusterSize)
+	for _, node := range discoveredNodes {
+		logrus.WithFields(logrus.Fields{
+			logfield.Component: k8sJoiner,
+			logfield.Event:     "DISCOVERY-DONE",
+		}).Infof("discovered peer: nodeID=%s, rpcURL=%s, apiURL=%s",
+			node.ID, node.RPCURL, node.APIURL)
 	}
 	return discoveredNodes, nil
 }
 
-// getDiscoveryProviderHostPort returns the host:port of the kubernetes
-// discovery provider service. If it couldn't find it error is returned
-func (kj *KubernetesJoiner) getDiscoveryProviderHostPort() string {
-	return os.Getenv("K8S_DISCOVERY_PROVIDER_URL")
-}
-
-// getRaftClusterID returns the namespace and the kubernetes pod label corresponding
-// to the cluster identifier. If there is an error while retrieving it, it is returned
-func (kj *KubernetesJoiner) getRaftClusterID() (string, string, error) {
-	namespace, err := kj.getRaftClusterNamespace()
-	if err != nil {
-		return "", "", err
+// getRaftClusterNodeInfo builds the cluster configuration given cluster ID, namespace
+// and the cluster size. Name of other peers can be derived since they have a predictable
+// pattern (it must be deployed as StatefulSet)
+func (kj *KubernetesJoiner) getRaftClusterNodeInfo(clusterID, clusterSvcName, ns string, clusterSize int) []cluster.NodeInfo {
+	nodes := make([]cluster.NodeInfo, clusterSize)
+	for i := 0; i < clusterSize; i++ {
+		nodeID := fmt.Sprintf("%s-%d", clusterID, i)
+		nodes[i] = cluster.NodeInfo{
+			ID:     nodeID,
+			RPCURL: fmt.Sprintf("%s.%s:%d", nodeID, clusterSvcName, kj.RPCPort),
+			APIURL: fmt.Sprintf("%s.%s:%d", nodeID, clusterSvcName, kj.APIPort),
+		}
 	}
-	label, err := kj.getRaftClusterLabel()
-	if err != nil {
-		return "", "", err
-	}
-	return namespace, label, nil
+	return nodes
 }
 
 // getRaftClusterNamespace returns the kubernetes namespace in which the
@@ -140,15 +161,15 @@ func (kj *KubernetesJoiner) getRaftClusterNamespace() (string, error) {
 	return kj.readFileContentsAsString(nsFilename)
 }
 
-// getRaftClusterLabel reads the labels on the pod and tries to get the
+// getRaftPodLabels reads the labels on the pod and tries to get the
 // "raft-cluster-id" label on it in the same namespace on which this node
 // resides. If that label is not present in the current pod then an error
 // is returned indicating that the pod should have that label
-func (kj *KubernetesJoiner) getRaftClusterLabel() (string, error) {
+func (kj *KubernetesJoiner) getRaftPodLabels() (map[string]string, error) {
 	labelsPath := kj.getClusterConfigFilePath("labels")
 	labelsFile, err := os.Open(labelsPath)
 	if err != nil {
-		return "", err
+		return map[string]string{}, err
 	}
 	defer labelsFile.Close()
 
@@ -157,77 +178,28 @@ func (kj *KubernetesJoiner) getRaftClusterLabel() (string, error) {
 	// Kubernetes stores each label in the format
 	// key="value".
 	scanner := bufio.NewScanner(labelsFile)
+	labels := make(map[string]string)
 	for scanner.Scan() {
 		curLine := scanner.Text()
 		logrus.Debugf("current label: %s", curLine)
 		labelKey, labelValue, err := kj.parseLabel(curLine)
 		if err != nil {
-			return "", err
+			return labels, err
 		}
-		if labelKey == raftClusterIDLabel {
-			return labelValue, nil
-		}
+		labels[labelKey] = labelValue
 	}
-	return "", nil
+	return labels, nil
 }
 
 func (kj *KubernetesJoiner) parseLabel(labelKV string) (string, string, error) {
 	match := kj.kvRegex.FindStringSubmatch(labelKV)
-	var result map[string]string
+	result := make(map[string]string)
 	for i, name := range kj.kvRegex.SubexpNames() {
 		if i != 0 && len(name) > 0 {
 			result[name] = match[i]
 		}
 	}
 	return result["key"], result["value"], nil
-}
-
-// getPodsInRaftCluster returns the pods in the raft cluster. It contacts the kubernetes
-// discovery provider through the address provided and queries for all the pods with the
-// given label in the given namespace.
-func (kj *KubernetesJoiner) getPodsInRaftCluster(providerHostPort, raftNamespace, raftLabel string) ([]string, error) {
-	var discErr error
-	maxAttempts := 3
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		escapedRaftNamespace := url.PathEscape(raftNamespace)
-		escapedRaftLabel := url.PathEscape(raftLabel)
-		providerPath := &url.URL{
-			Scheme: "http",
-			Host:   providerHostPort,
-			Path:   fmt.Sprintf("v1/nodes/%s/%s", escapedRaftNamespace, escapedRaftLabel),
-		}
-		logrus.WithFields(logrus.Fields{
-			logfield.Component: k8sJoiner,
-			logfield.Event:     "GET-PEER-REQ",
-		}).Debugf("sending GET request to %s", providerPath.String())
-
-		// Send a GET request to the rest endpoint
-		httpClient := http.Client{Timeout: time.Duration(10 * time.Second)}
-		resp, err := httpClient.Get(providerPath.String())
-		if err != nil {
-			return []string{}, err
-		}
-		defer resp.Body.Close()
-
-		// parse the body and retrieve the list of nodes discovered
-		var raftNodesDiscovered []string
-		discErr = json.NewDecoder(resp.Body).Decode(&raftNodesDiscovered)
-		if discErr == nil {
-			return raftNodesDiscovered, nil
-		}
-		// If the query doesn't succeed then log the error, wait for some time
-		// and then try again. Just return error if it is the last attempt.
-		logrus.WithFields(logrus.Fields{
-			logfield.Component:   k8sJoiner,
-			logfield.Event:       "DISCOVERY-QUERY",
-			logfield.ErrorReason: discErr.Error(),
-		}).Errorf("attempt #%d - failed to obtain peer information", attempt)
-
-		if attempt < maxAttempts {
-			<-time.After(time.Duration(attempt*2) * time.Second)
-		}
-	}
-	return []string{}, discErr
 }
 
 // getClusterConfigFilePath returns the path to the file relative to the cluster

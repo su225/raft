@@ -351,8 +351,9 @@ func getJoiner(config *Config) cluster.Joiner {
 	if config.JoinMode == KubernetesJoinMode {
 		return k8s.NewKubernetesJoiner(
 			config.ClusterConfigPath,
-			config.RPCPort,
+			config.NodeID,
 			config.APIPort,
+			config.RPCPort,
 		)
 	}
 	return cluster.NewStaticFileBasedJoiner(config.ClusterConfigPath)
