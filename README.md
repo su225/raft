@@ -8,7 +8,8 @@ Implementation of a simple key-value store based on Raft consensus protocol in G
 
 ## Table of contents
 1. [Quick start](#start-a-3-node-cluster-locally-with-default-settings)
-2. [Build, test and run](#build-test-and-run)
+2. [Run on Kubernetes](#start-a-3-node-cluster-on-kubernetes)
+3. [Build, test and run](#build-test-and-run)
     1. [Building and running tests](#building-and-running-tests)
     2. [Setting up cluster directory structure](#setting-up-cluster-directory-structure)
     3. [Setting up cluster configuration](#setting-up-cluster-configuration)
@@ -51,6 +52,38 @@ This command if successful would create a 3-node cluster with nodes _node-1_, _n
    curl -v http://localhost:7777/v1/data/a
    ```
 **NOTE**:  The response can be 500 for some time in the middle (say during leader election or recovery after a crash in which case the leader may not be known to forward the request to). If that is the case, then try again. If it still persists, it might be a bug (feel free to raise a PR in that case)
+
+---
+
+## Start a 3-node cluster on Kubernetes
+
+Assuming you have Kubernetes cluster running with at least 3-nodes (it is a must because of pod anti-affinity rules. You can edit `raft-k8s-deploy.yaml` to remove that constraint) run the following command
+
+```shell
+# Run this command if and only if you don't have a namespace
+# called raft-k8s. Make sure you have appropriate privileges
+kubectl create namespace raft-k8s
+
+# This will deploy a 3-node Raft cluster to the kubernetes
+# cluster. It will also create a service to access the REST API
+make k8s-deploy
+```
+
+**NOTE**: `raft-k8s-deploy.yaml` works only if you are running Kubernetes cluster on DigitalOcean since storage class is specific to that cloud provider. In future, it must be replaced with CSI (Container Storage Interface) to make it cloud-provider agnostic.
+
+After some time you should be able to see the cluster up and running. You can run these commands to check the status
+```shell
+# List all pods in the namespace raft-k8s
+kubectl -n raft-k8s get pods -o wide
+
+# List all services in the namespace raft-k8s
+kubectl -n raft-k8s get services -o wide
+
+# List all persistent volume claims in the namespace
+kubectl -n raft-k8s get pvc
+```
+
+Pay attention to `raft-apiservice` when you list services. The **ExternalIP** of that service can be used to access the raft key-value store from outside Kubernetes cluster. You can run the REST commands mentioned in the previous section by replacing localhost with ExternalIP
 
 ---
 
