@@ -2,6 +2,9 @@ VERSION=0
 DOCKER_NW=dockerraft
 CLUSTER_SZ=3
 
+RAFT_HEADLESS_SVC=raft-headless-svc.yaml
+K8S_DEPLOY_DESCRIPTOR=raft-k8s-deploy.yaml
+
 build:
 	go build -race . 
 
@@ -40,6 +43,14 @@ push-to-registry: build-docker-container
 	docker login
 	docker tag raft:local $(REPO)/raft:$(VERSION)
 	docker push $(REPO)/raft:$(VERSION)
+
+k8s-deploy:
+	kubectl create -f $(RAFT_HEADLESS_SVC)
+	kubectl create -f $(K8S_DEPLOY_DESCRIPTOR)
+
+k8s-undeploy:
+	kubectl delete -f $(K8S_DEPLOY_DESCRIPTOR)
+	kubectl delete -f $(RAFT_HEADLESS_SVC)
 
 clean:
 	rm -rf raft
