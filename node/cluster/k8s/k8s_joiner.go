@@ -90,7 +90,7 @@ func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
 			logfield.Component: k8sJoiner,
 			logfield.Event:     "GET-RAFT-CLUSTER-ID",
 		}).Warnf("couldn't find label: %s", raftClusterIDLabel)
-		return discoveredNodes, nil
+		return discoveredNodes, &LabelNotPresentError{RequiredLabel: raftClusterIDLabel}
 	}
 	clusterSize, present := podLabels[raftClusterSizeLabel]
 	if !present {
@@ -98,7 +98,7 @@ func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
 			logfield.Component: k8sJoiner,
 			logfield.Event:     "GET-RAFT-CLUSTER-SIZE",
 		}).Warnf("couldn't find label: %s", raftClusterSizeLabel)
-		return discoveredNodes, nil
+		return discoveredNodes, &LabelNotPresentError{RequiredLabel: raftClusterSizeLabel}
 	}
 	clusterSvcName, present := podLabels[raftClusterSvcNameLabel]
 	if !present {
@@ -106,7 +106,7 @@ func (kj *KubernetesJoiner) DiscoverNodes() ([]cluster.NodeInfo, error) {
 			logfield.Component: k8sJoiner,
 			logfield.Event:     "GET-RAFT-CLUSTER-SVC-NAME",
 		}).Warnf("couldn't find label: %s", raftClusterSvcNameLabel)
-		return discoveredNodes, nil
+		return discoveredNodes, &LabelNotPresentError{RequiredLabel: clusterSvcName}
 	}
 	var intClusterSize int
 	_, err = fmt.Sscanf(clusterSize, "%d", &intClusterSize)
